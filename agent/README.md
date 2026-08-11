@@ -47,8 +47,8 @@ with one `vision-free` fallback.
 ~/.pi/agent/
 ├── settings.json          — default model (openai-codex/gpt-5.6-sol, 272K
 │                             context), thinking low effort, compaction,
-│                             retry, model cycling set, nvim editor;
-│                             gpt-5.6-sol-1m is opt-in, not default
+│                             retry, 19-model enabledModels cycle set, nvim
+│                             editor; gpt-5.6-sol-1m is opt-in, not default
 ├── models.json            — model definitions (openai-codex/gpt-5.6-sol-1m:
 │                             1.05M context, long-context pricing above 272K)
 ├── keybindings.json       — vim-style editing bindings
@@ -56,6 +56,9 @@ with one `vision-free` fallback.
 │                             task contract, TDD loop, diffing rules, no-attribution)
 ├── extensions/
 │   ├── subagent/          — task tool: spawn workers (index.ts, agents.ts)
+│   ├── cursor-lazy/       — registers the Cursor provider at startup from the
+│   │                         disk-cached catalog (/cursor-load [--refresh],
+│   │                         /cursor-unload)
 │   ├── vision-router.ts   — auto vision delegation for pasted images
 │   └── sol-1m-alias.ts    — rewrites only openai-codex/gpt-5.6-sol-1m requests
 │                             → upstream gpt-5.6-sol
@@ -66,23 +69,39 @@ with one `vision-free` fallback.
 
 ## Model Inventory
 
+The approved scope is the 19 models in `enabledModels` (`agent/settings.json` is
+authoritative).
+
 | Model | Provider | Role |
 |-------|----------|------|
-| `opencode-go/deepseek-v4-flash` | Go bundle | Paid worker twin |
-| `opencode/deepseek-v4-flash-free` | Zen bundle | Free workers (chores) |
-| `opencode/grok-4.5` | Zen bundle | Lead — Cursor's grok-4.5 (effort high) |
-| `opencode/gpt-5.6-sol` | Zen bundle | Lead — max reasoning |
+| `openai-codex/gpt-5.6-sol` | openai-codex | Lead — default, low thinking, 272K window |
 | `openai-codex/gpt-5.6-sol-1m` | openai-codex | Lead — opt-in 1.05M-context alias (rewrites to upstream `gpt-5.6-sol`; long-context pricing above 272K input) |
-| `opencode/gpt-5.6-luna` | Zen bundle | Lead (fast, vision) + vision agent |
-| `opencode/claude-opus-4-7` | Zen bundle | Lead — Claude |
-| `opencode/claude-sonnet-4-6` | Zen bundle | Lead — Claude fast |
-| `opencode/kimi-k2.7-code` | Zen bundle | Lead — coding |
-| `opencode/gemini-3.6-flash` | Zen bundle | Lead — fast/cheap |
-| `opencode/mimo-v2.5-free` | Zen bundle | vision-free fallback |
+| `openai-codex/gpt-5.6-terra` | openai-codex | Lead — reasoning |
+| `openai-codex/gpt-5.6-luna` | openai-codex | Lead — fast, vision |
+| `cursor/grok-4.5` | Cursor | Lead — Cursor's grok-4.5 |
+| `cursor/grok-4.5:fast` | Cursor | Lead — fast variant |
+| `cursor/composer-2.5` | Cursor | Lead — Composer |
+| `cursor/kimi-k3` | Cursor | Lead — coding |
+| `cursor/glm-5.2` | Cursor | Lead — coding |
+| `cursor/claude-fable-5@300k` | Cursor | Lead — Claude, standard 300K |
+| `cursor/claude-fable-5@1m` | Cursor | Lead — Claude, opt-in 1M |
+| `cursor/claude-opus-5@300k` | Cursor | Lead — Claude, standard 300K |
+| `cursor/claude-opus-5@1m` | Cursor | Lead — Claude, opt-in 1M |
+| `opencode-go/deepseek-v4-flash` | Go bundle | Paid worker twin |
+| `opencode-go/glm-5.2` | Go bundle | Lead — coding |
+| `opencode-go/kimi-k3` | Go bundle | Lead — coding |
+| `opencode-go/minimax-m3` | Go bundle | Lead |
+| `opencode-go/qwen3.8-max` | Go bundle | Lead — coding |
+| `opencode-go/grok-4.5` | Go bundle | Lead |
+
+`enabledModels` covers leads + the paid worker twin only. Worker free twins
+(`opencode/deepseek-v4-flash-free`, `opencode/mimo-v2.5-free`) are
+auto-provisioned outside the scope and still used by `agents/*.md`.
 
 Cycle leads with `Ctrl+P` (set via `enabledModels`). Default remains
 `openai-codex/gpt-5.6-sol` at low effort with the standard 272K window;
-`gpt-5.6-sol-1m` is opt-in for 1.05M context.
+`gpt-5.6-sol-1m` is opt-in for 1.05M context. Same pattern on Cursor
+Fable/Opus: `@300k` is the standard entry, `@1m` is opt-in.
 
 ## Agents (workers)
 
@@ -150,12 +169,13 @@ mutate GitHub without explicit authorization. Skills from
 | Cursor `no-co-authored-by.mdc` | `AGENTS.md` + `agents/git.md` |
 | Cursor `diffing-plan-review.mdc` / `diffing-session-url.mdc` | `AGENTS.md` + `/plan` `/review` |
 | Cursor CLI `vimMode` | `keybindings.json` + `externalEditor: nvim` |
-| Cursor model `grok-4.5 high` | `enabledModels` includes `opencode/grok-4.5` |
+| Cursor model `grok-4.5 high` | `enabledModels` includes `cursor/grok-4.5` (and `:fast` variant) |
 | herdr plugin (`herdr-agent-state.js`) | `herdr` skill (auto-loaded) |
 
 ## Notes
 
 - Extensions hot-reload with `/reload` after edits.
+- Cursor provider registers at startup from `pi-cursor-sdk`'s disk-cached catalog (`extensions/cursor-lazy/`): `/cursor-load` confirms the provider is loaded, `/cursor-load --refresh` fetches the live Cursor catalog (refreshed scoping applies on `/new` or restart), `/cursor-unload` unregisters it.
 - Child worker processes are lean: `--no-extensions --no-skills --no-prompt-templates --no-context-files` (the brief is the whole context; prevents recursion).
 - `settings.json` is the single source of truth for model/thinking/compaction.
 - Auth: `opencode-go` and `opencode` API keys are in `~/.pi/agent/auth.json` (via `/login`).
