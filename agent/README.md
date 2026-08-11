@@ -6,8 +6,7 @@ leader/worker and diffing-first workflow. Built for a nerd neovim user: vim
 keybindings, nvim external editor, cheap Flash workers, human-in-the-loop
 review everywhere.
 
-The original opencode config lives at `~/.config/opencode/` and remains as a
-reference; **pi is now the active harness.**
+**pi is now the active harness.**
 
 ## Architecture — Smart Lead, Workers Follow
 
