@@ -32,6 +32,12 @@ fresh `pi` processes with their own context windows and hand results back.
 Each free worker has a `*-paid` twin (same role, paid DeepSeek V4 Flash) for
 one retry when the free tier is unavailable.
 
+**Action flow:** request → route (lead / vision / one scoped worker) → optional
+`/plan` approval → implement / delegate → tests & diagnostics → diff review
+(`/review` → `/finish`). The lead owns design, debugging, fixes, review;
+workers do one chore and never recurse; vision describes images for the lead
+with one `vision-free` fallback.
+
 > **Accuracy overrides cost.** Never choose a cheaper path if it increases the
 > chance of incorrect implementation, unsafe command, or data loss.
 
@@ -39,14 +45,20 @@ one retry when the free tier is unavailable.
 
 ```
 ~/.pi/agent/
-├── settings.json          — default model (deepseek-v4-flash), thinking high,
-│                             compaction, retry, model cycling set, nvim editor
+├── settings.json          — default model (openai-codex/gpt-5.6-sol, 272K
+│                             context), thinking low effort, compaction,
+│                             retry, model cycling set, nvim editor;
+│                             gpt-5.6-sol-1m is opt-in, not default
+├── models.json            — model definitions (openai-codex/gpt-5.6-sol-1m:
+│                             1.05M context, long-context pricing above 272K)
 ├── keybindings.json       — vim-style editing bindings
 ├── AGENTS.md              — THE AI Engineering System (routing, chore rule,
 │                             task contract, TDD loop, diffing rules, no-attribution)
 ├── extensions/
 │   ├── subagent/          — task tool: spawn workers (index.ts, agents.ts)
-│   └── vision-router.ts   — auto vision delegation for pasted images
+│   ├── vision-router.ts   — auto vision delegation for pasted images
+│   └── sol-1m-alias.ts    — rewrites only openai-codex/gpt-5.6-sol-1m requests
+│                             → upstream gpt-5.6-sol
 ├── agents/                — 21 worker definitions (markdown + frontmatter)
 ├── prompts/               — /diffing /plan /review /finish /commit /implement /explore
 └── vision/                — decoded pasted images (for manual vision fallback)
@@ -56,10 +68,11 @@ one retry when the free tier is unavailable.
 
 | Model | Provider | Role |
 |-------|----------|------|
-| `opencode-go/deepseek-v4-flash` | Go bundle | **Default lead** + paid worker twin |
+| `opencode-go/deepseek-v4-flash` | Go bundle | Paid worker twin |
 | `opencode/deepseek-v4-flash-free` | Zen bundle | Free workers (chores) |
 | `opencode/grok-4.5` | Zen bundle | Lead — Cursor's grok-4.5 (effort high) |
 | `opencode/gpt-5.6-sol` | Zen bundle | Lead — max reasoning |
+| `openai-codex/gpt-5.6-sol-1m` | openai-codex | Lead — opt-in 1.05M-context alias (rewrites to upstream `gpt-5.6-sol`; long-context pricing above 272K input) |
 | `opencode/gpt-5.6-luna` | Zen bundle | Lead (fast, vision) + vision agent |
 | `opencode/claude-opus-4-7` | Zen bundle | Lead — Claude |
 | `opencode/claude-sonnet-4-6` | Zen bundle | Lead — Claude fast |
@@ -68,7 +81,8 @@ one retry when the free tier is unavailable.
 | `opencode/mimo-v2.5-free` | Zen bundle | vision-free fallback |
 
 Cycle leads with `Ctrl+P` (set via `enabledModels`). Default remains
-`opencode-go/deepseek-v4-flash`.
+`openai-codex/gpt-5.6-sol` at low effort with the standard 272K window;
+`gpt-5.6-sol-1m` is opt-in for 1.05M context.
 
 ## Agents (workers)
 

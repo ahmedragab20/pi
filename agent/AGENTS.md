@@ -17,6 +17,16 @@ Persistent rules for every pi session on this machine. Obey exactly. This is the
 - **Workers** — spawned via the `task` tool (extension `~/.pi/agent/extensions/subagent`). Each runs in an isolated `pi` process with its own context window, role prompt (`~/.pi/agent/agents/*.md`), model, and tool allowlist. **Depth 1 only: workers never spawn workers.**
 - **Vision** — `vision` (`opencode-go/gpt-5.6-luna`) → one-time fallback `vision-free` (`opencode/mimo-v2.5-free`). Pasted images are auto-routed by `vision-router`; `[VISION DESCRIPTION]` is injected before the lead sees the turn.
 
+## Action flow (one request, end to end)
+
+**Request → route → optional plan approval → implement / delegate → tests & diagnostics → diff review.**
+
+1. **Route** — first match of lead routing below: images → vision (one fallback), design / debugging / fixes / review → lead, mechanical chores → the one matching worker.
+2. **Plan approval (optional)** — non-trivial changes: `/plan` through diffing, human verdict before any code.
+3. **Implement / delegate** — lead implements substantive parts; each chore goes to exactly one scoped worker — one chore per `task` call, depth 1 (workers never recurse).
+4. **Tests / diagnostics** — `task` `tests` / `lint` for suite runs and diagnostics; lead judges the evidence.
+5. **Diff review** — hand the working-tree diff to the human (`/review`), apply the `/finish` handoff, print the URL.
+
 ## Lead routing (first match)
 
 1. **Images** → prefer the injected `[VISION DESCRIPTION]` from vision-router. Else `task` agent `vision` (then `vision-free` once).
