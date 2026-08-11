@@ -1,0 +1,14 @@
+# Secrets — never commit
+/agent/auth.json
+/agent/models-store.json
+
+# Machine-specific / personal
+/agent/trust.json
+/agent/cursor-sdk-model-list.json
+
+# Session transcripts & pasted images
+/agent/sessions/
+/agent/vision/
+
+# Symlink to local dev checkout (leaks absolute path)
+/agent/extensions/diffing

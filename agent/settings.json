@@ -1,0 +1,43 @@
+{
+  "lastChangelogVersion": "0.84.1",
+  "theme": "dark",
+  "defaultProvider": "opencode-go",
+  "defaultModel": "deepseek-v4-flash",
+  "defaultThinkingLevel": "high",
+  "hideThinkingBlock": false,
+  "externalEditor": "nvim",
+  "quietStartup": true,
+  "defaultProjectTrust": "always",
+  "compaction": {
+    "enabled": true,
+    "reserveTokens": 16384,
+    "keepRecentTokens": 20000
+  },
+  "retry": {
+    "enabled": true,
+    "maxRetries": 2,
+    "baseDelayMs": 2000,
+    "provider": {
+      "timeoutMs": 3600000,
+      "maxRetries": 0,
+      "maxRetryDelayMs": 60000
+    }
+  },
+  "warnings": {
+    "anthropicExtraUsage": true
+  },
+  "packages": [
+    "npm:pi-cursor-sdk",
+    "npm:@vigolium/piolium",
+    "npm:pi-tool-repair",
+    "npm:pi-lens",
+    "npm:@ff-labs/pi-fff",
+    "npm:@juicesharp/rpiv-ask-user-question"
+  ],
+  "showHardwareCursor": false,
+  "editorPaddingX": 1,
+  "enableInstallTelemetry": false,
+  "treeFilterMode": "all",
+  "tuiMode": "fullscreen",
+  "fullscreenScrollbar": "hidden"
+}
