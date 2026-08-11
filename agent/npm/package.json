@@ -5,7 +5,6 @@
     "@ff-labs/pi-fff": "^0.10.3",
     "@juicesharp/rpiv-ask-user-question": "^2.4.0",
     "@vigolium/piolium": "^0.0.13",
-    "pi-cursor-sdk": "^0.2.0",
     "pi-lens": "^3.8.74",
     "pi-tool-repair": "^0.2.0",
     "pi-vim": "^0.14.1"

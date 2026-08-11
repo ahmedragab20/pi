@@ -1,8 +1,8 @@
 {
   "lastChangelogVersion": "0.84.1",
   "theme": "rose-pine",
-  "defaultProvider": "opencode-go",
-  "defaultModel": "deepseek-v4-flash",
+  "defaultProvider": "cursor",
+  "defaultModel": "grok-4.5",
   "defaultThinkingLevel": "high",
   "hideThinkingBlock": true,
   "externalEditor": "nvim",
@@ -27,7 +27,6 @@
     "anthropicExtraUsage": true
   },
   "packages": [
-    "npm:pi-cursor-sdk",
     "npm:@vigolium/piolium",
     "npm:pi-tool-repair",
     "npm:pi-lens",
