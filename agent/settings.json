@@ -39,7 +39,7 @@
   "editorPaddingX": 1,
   "enableInstallTelemetry": false,
   "treeFilterMode": "all",
-  "tuiMode": "regular",
+  "tuiMode": "fullscreen",
   "fullscreenScrollbar": "hidden",
   "piVim": {
     "modeColors": {
