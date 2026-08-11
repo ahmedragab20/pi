@@ -72,7 +72,10 @@ Diffing is the first-class review surface of this harness. The skills live in `~
 
 ## Commits
 
-**No `Co-authored-by:` trailers and no agent/bot attribution, ever.** Commits are authored by the human only. When creating commits, use only the human-authored title and body; strip any agent attribution trailers. (If the user explicitly asks for a real-person co-author, follow that.)
+- **Mandatory pre-commit check:** before every commit, inspect the proposed message and confirm it follows Conventional Commits: `<type>(<optional-scope>): <description>`. Never run `git commit` until this check passes.
+- Allowed common types: `feat`, `fix`, `docs`, `refactor`, `test`, `chore`, `build`, `ci`, `perf`, `style`, `revert`.
+- Use `!` before `:` or a `BREAKING CHANGE:` footer for breaking changes. Keep the description imperative and concise.
+- **No `Co-authored-by:` trailers and no agent/bot attribution, ever.** Commits are authored by the human only. When creating commits, use only the human-authored title and body; strip any agent attribution trailers. (If the user explicitly asks for a real-person co-author, follow that.)
 
 ## No infinite subagent loops
 
