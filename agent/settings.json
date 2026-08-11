@@ -1,8 +1,8 @@
 {
   "lastChangelogVersion": "0.84.1",
   "theme": "rose-pine",
-  "defaultProvider": "cursor",
-  "defaultModel": "grok-4.5",
+  "defaultProvider": "opencode-go",
+  "defaultModel": "deepseek-v4-flash",
   "defaultThinkingLevel": "high",
   "hideThinkingBlock": true,
   "externalEditor": "nvim",
@@ -10,8 +10,11 @@
   "defaultProjectTrust": "always",
   "compaction": {
     "enabled": true,
-    "reserveTokens": 16384,
+    "reserveTokens": 24576,
     "keepRecentTokens": 20000
+  },
+  "branchSummary": {
+    "reserveTokens": 24576
   },
   "retry": {
     "enabled": true,
