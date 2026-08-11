@@ -7,6 +7,7 @@
     "@vigolium/piolium": "^0.0.13",
     "pi-cursor-sdk": "^0.2.0",
     "pi-lens": "^3.8.74",
-    "pi-tool-repair": "^0.2.0"
+    "pi-tool-repair": "^0.2.0",
+    "pi-vim": "^0.14.1"
   }
 }

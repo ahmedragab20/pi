@@ -1,10 +1,10 @@
 {
   "lastChangelogVersion": "0.84.1",
-  "theme": "dark",
+  "theme": "rose-pine",
   "defaultProvider": "opencode-go",
   "defaultModel": "deepseek-v4-flash",
   "defaultThinkingLevel": "high",
-  "hideThinkingBlock": false,
+  "hideThinkingBlock": true,
   "externalEditor": "nvim",
   "quietStartup": true,
   "defaultProjectTrust": "always",
@@ -32,12 +32,21 @@
     "npm:pi-tool-repair",
     "npm:pi-lens",
     "npm:@ff-labs/pi-fff",
-    "npm:@juicesharp/rpiv-ask-user-question"
+    "npm:@juicesharp/rpiv-ask-user-question",
+    "npm:pi-vim"
   ],
   "showHardwareCursor": false,
   "editorPaddingX": 1,
   "enableInstallTelemetry": false,
   "treeFilterMode": "all",
-  "tuiMode": "fullscreen",
-  "fullscreenScrollbar": "hidden"
+  "tuiMode": "regular",
+  "fullscreenScrollbar": "hidden",
+  "piVim": {
+    "modeColors": {
+      "insert": "borderMuted",
+      "normal": "borderAccent",
+      "visual": "customMessageLabel",
+      "ex": "warning"
+    }
+  }
 }

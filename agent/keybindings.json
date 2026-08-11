@@ -10,5 +10,6 @@
   "tui.editor.deleteWordBackward": ["ctrl+w", "alt+backspace"],
   "tui.editor.deleteWordForward": ["alt+d", "alt+delete"],
   "tui.editor.yank": ["ctrl+y"],
-  "tui.editor.yankPop": ["alt+y"]
+  "tui.editor.yankPop": ["alt+y"],
+  "app.thinking.toggle": ["ctrl+t", "alt+t"]
 }
