@@ -45,7 +45,7 @@ with one `vision-free` fallback.
 
 ```
 ~/.pi/agent/
-├── settings.json          — default model (cursor/grok-4.5), thinking low
+├── settings.json          — default model (cursor/grok-4.5), thinking high
 │                             level, compaction, retry, 19-model
 │                             enabledModels cycle set, nvim editor;
 │                             gpt-5.6-sol-1m is opt-in, not default
@@ -78,7 +78,7 @@ authoritative).
 | `openai-codex/gpt-5.6-sol-1m` | openai-codex | Lead — opt-in 1.05M-context alias (rewrites to upstream `gpt-5.6-sol`; long-context pricing above 272K input) |
 | `openai-codex/gpt-5.6-terra` | openai-codex | Lead — reasoning |
 | `openai-codex/gpt-5.6-luna` | openai-codex | Lead — fast, vision |
-| `cursor/grok-4.5` | Cursor | Lead — default, low thinking |
+| `cursor/grok-4.5` | Cursor | Lead — default, high thinking |
 | `cursor/grok-4.5:fast` | Cursor | Lead — fast variant |
 | `cursor/composer-2.5` | Cursor | Lead — Composer |
 | `cursor/kimi-k3` | Cursor | Lead — coding |
@@ -99,7 +99,7 @@ authoritative).
 auto-provisioned outside the scope and still used by `agents/*.md`.
 
 Cycle leads with `Ctrl+P` (set via `enabledModels`). Default is
-`cursor/grok-4.5` at low thinking level. `openai-codex/gpt-5.6-sol` runs at
+`cursor/grok-4.5` at high thinking level. `openai-codex/gpt-5.6-sol` runs at
 low effort with the standard 272K window; `gpt-5.6-sol-1m` is opt-in for
 1.05M context. Same pattern on Cursor
 Fable/Opus: `@300k` is the standard entry, `@1m` is opt-in.

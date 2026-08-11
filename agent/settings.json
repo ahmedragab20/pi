@@ -3,7 +3,7 @@
   "theme": "rose-pine",
   "defaultProvider": "cursor",
   "defaultModel": "grok-4.5",
-  "defaultThinkingLevel": "low",
+  "defaultThinkingLevel": "high",
   "hideThinkingBlock": true,
   "externalEditor": "nvim",
   "quietStartup": true,
