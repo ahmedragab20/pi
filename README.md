@@ -4,7 +4,7 @@ Personal configuration for [pi](https://pi.dev), the coding agent harness.
 This repo is the pi-native port of the opencode AI Engineering System
 (subagents + vision routing) merged with the Cursor leader/worker and
 diffing-first workflow — stored as a dotfiles-style git repo at `~/.pi`.
-The original opencode config stays at `~/.config/opencode/` as reference;
+
 **pi is the active harness.**
 
 ## Layout
