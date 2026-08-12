@@ -4,7 +4,11 @@
 
 # Machine-specific / personal
 /agent/trust.json
+
+# Cursor SDK generated state (auto-maintained by cursor-lazy)
+/agent/cursor-sdk.json
 /agent/cursor-sdk-model-list.json
+/agent/cursor-sdk-context-windows.json
 
 # Session transcripts & pasted images
 /agent/sessions/
