@@ -68,17 +68,16 @@ with one `vision-free` fallback.
 
 ## Model Inventory
 
-The approved scope is the 19 models in `enabledModels` (`agent/settings.json` is
+The approved scope is the 18 models in `enabledModels` (`agent/settings.json` is
 authoritative).
 
 | Model | Provider | Role |
-|-------|----------|------|
+| ------- | ---------- | ------ |
 | `openai-codex/gpt-5.6-sol` | openai-codex | Lead — low thinking, 272K window |
 | `openai-codex/gpt-5.6-sol-1m` | openai-codex | Lead — opt-in 1.05M-context alias (rewrites to upstream `gpt-5.6-sol`; long-context pricing above 272K input) |
 | `openai-codex/gpt-5.6-terra` | openai-codex | Lead — reasoning |
 | `openai-codex/gpt-5.6-luna` | openai-codex | Lead — fast, vision |
-| `cursor/grok-4.5` | Cursor | Lead — default, high thinking |
-| `cursor/grok-4.5:fast` | Cursor | Lead — fast variant |
+| `cursor/grok-4.6` | Cursor | Lead — high thinking |
 | `cursor/composer-2.5` | Cursor | Lead — Composer |
 | `cursor/kimi-k3` | Cursor | Lead — coding |
 | `cursor/glm-5.2` | Cursor | Lead — coding |
@@ -87,11 +86,11 @@ authoritative).
 | `cursor/claude-opus-5@300k` | Cursor | Lead — Claude, standard 300K |
 | `cursor/claude-opus-5@1m` | Cursor | Lead — Claude, opt-in 1M |
 | `opencode-go/deepseek-v4-flash` | Go bundle | Paid worker twin |
+| `opencode-go/deepseek-v4-pro` | Go bundle | Lead |
 | `opencode-go/glm-5.2` | Go bundle | Lead — coding |
 | `opencode-go/kimi-k3` | Go bundle | Lead — coding |
 | `opencode-go/minimax-m3` | Go bundle | Lead |
 | `opencode-go/qwen3.8-max` | Go bundle | Lead — coding |
-| `opencode-go/grok-4.5` | Go bundle | Lead |
 
 `enabledModels` covers leads + the paid worker twin only. Worker free twins
 (`opencode/deepseek-v4-flash-free`, `opencode/mimo-v2.5-free`) are
@@ -106,7 +105,7 @@ Fable/Opus: `@300k` is the standard entry, `@1m` is opt-in.
 ## Agents (workers)
 
 | Agent | Model | Tools | Role |
-|-------|-------|-------|------|
+| ------- | ------- | ------- | ------ |
 | `worker` | flash-free | full | Mechanical impl, CRUD, fixtures, refactors |
 | `tests` | flash-free | full | Write/run tests, report failing assertion |
 | `lint` | flash-free | full | Format, lint, imports, style |
@@ -128,7 +127,7 @@ Workers are **depth 1** — they never spawn workers.
 Human-in-the-loop review is the default workflow, not an add-on:
 
 | Command | What it does |
-|---------|--------------|
+| --------- | -------------- |
 | `/plan <what>` | Draft a plan → submit to diffing → **await human approval before coding** |
 | `/review` | Start/reopen the diffing review UI for working-tree changes, hand to human |
 | `/finish` | Process the human's review handoff — apply edits, answer, resolve threads |
@@ -143,7 +142,7 @@ mutate GitHub without explicit authorization. Skills from
 ## Day-to-day
 
 | Gesture | What |
-|---------|------|
+| --------- | ------ |
 | `Ctrl+P` | Cycle lead model |
 | `Shift+Tab` | Cycle thinking level |
 | `Ctrl+G` | Open external editor (nvim) |
@@ -159,7 +158,7 @@ mutate GitHub without explicit authorization. Skills from
 ## Migration map (opencode → pi)
 
 | opencode / Cursor | pi equivalent |
-|-------------------|---------------|
+| ------------------- | --------------- |
 | `agent/*.md` subagents | `agents/*.md` + `task` extension (isolated pi processes) |
 | `image-router` plugin | `extensions/vision-router.ts` |
 | `instructions/ai-engineering-system.md` | `AGENTS.md` |
@@ -169,7 +168,7 @@ mutate GitHub without explicit authorization. Skills from
 | Cursor `no-co-authored-by.mdc` | `AGENTS.md` + `agents/git.md` |
 | Cursor `diffing-plan-review.mdc` / `diffing-session-url.mdc` | `AGENTS.md` + `/plan` `/review` |
 | Cursor CLI `vimMode` | `keybindings.json` + `externalEditor: nvim` |
-| Cursor model `grok-4.5 high` | `enabledModels` includes `cursor/grok-4.5` (and `:fast` variant) |
+| Cursor model `grok-4.6 high` | `enabledModels` includes `cursor/grok-4.6` |
 | herdr plugin (`herdr-agent-state.js`) | `herdr` skill (auto-loaded) |
 
 ## Notes

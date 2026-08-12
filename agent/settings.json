@@ -1,8 +1,8 @@
 {
   "lastChangelogVersion": "0.84.1",
   "theme": "rose-pine",
-  "defaultProvider": "cursor",
-  "defaultModel": "grok-4.5",
+  "defaultProvider": "opencode-go",
+  "defaultModel": "deepseek-v4-pro",
   "defaultThinkingLevel": "high",
   "hideThinkingBlock": true,
   "externalEditor": "nvim",
@@ -31,8 +31,7 @@
     "openai-codex/gpt-5.6-sol-1m",
     "openai-codex/gpt-5.6-terra",
     "openai-codex/gpt-5.6-luna",
-    "cursor/grok-4.5",
-    "cursor/grok-4.5:fast",
+    "cursor/grok-4.6",
     "cursor/composer-2.5",
     "cursor/kimi-k3",
     "cursor/glm-5.2",
@@ -41,11 +40,11 @@
     "cursor/claude-opus-5@300k",
     "cursor/claude-opus-5@1m",
     "opencode-go/deepseek-v4-flash",
+    "opencode-go/deepseek-v4-pro",
     "opencode-go/glm-5.2",
     "opencode-go/kimi-k3",
     "opencode-go/minimax-m3",
-    "opencode-go/qwen3.8-max",
-    "opencode-go/grok-4.5"
+    "opencode-go/qwen3.8-max"
   ],
   "warnings": {
     "anthropicExtraUsage": true
@@ -71,5 +70,6 @@
       "visual": "customMessageLabel",
       "ex": "warning"
     }
-  }
+  },
+  "showCacheMissNotices": true
 }
