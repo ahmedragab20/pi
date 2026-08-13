@@ -1,9 +1,11 @@
 /**
  * harness-ux — navigation + live subagent visibility for the pi TUI.
  *
- * - /tasks   → Task Center overlay (navigable list + live worker detail)
+ * - /tasks   → fullscreen worker session (↑/Esc parent, ←→ siblings)
  * - /palette → fuzzy command palette (sessions, actions, models, message jump)
  * - footer   → live "◐ N tasks" status segment while workers run
+ *
+ * The worker view never auto-opens. Use /tasks or ctrl+shift+t.
  *
  * Built purely on pi's extension API; observes the `task` tool's
  * tool_execution_* events and `pi.events` `task:*` job updates so
@@ -32,6 +34,7 @@ function textPreview(content: any): string {
 
 export default function harnessUx(pi: ExtensionAPI) {
 	let ui: any;
+	let taskViewOpen = false;
 
 	// ---- Track the `task` tool lifecycle → registry ----
 	pi.on("tool_execution_start", (event) => {
@@ -46,9 +49,15 @@ export default function harnessUx(pi: ExtensionAPI) {
 		if (event.toolName !== "task") return;
 		taskRegistry.finish(event.toolCallId, event.result, event.isError);
 	});
-	pi.events.on("task:start", (job) => taskRegistry.applyJob(job as Record<string, any>));
-	pi.events.on("task:update", (job) => taskRegistry.applyJob(job as Record<string, any>));
-	pi.events.on("task:end", (job) => taskRegistry.applyJob(job as Record<string, any>));
+	pi.events.on("task:start", (job) => {
+		taskRegistry.applyJob(job as Record<string, any>);
+	});
+	pi.events.on("task:update", (job) =>
+		taskRegistry.applyJob(job as Record<string, any>),
+	);
+	pi.events.on("task:end", (job) =>
+		taskRegistry.applyJob(job as Record<string, any>),
+	);
 
 	// ---- Footer status segment ----
 	const refreshStatus = () => {
@@ -75,58 +84,73 @@ export default function harnessUx(pi: ExtensionAPI) {
 		taskRegistry.reset();
 	});
 
-	// ---- Task Center ----
-	const openTaskCenter = (ctx: any): Promise<null> => {
-		if (!ctx.hasUI) return Promise.resolve(null);
-		return ctx.ui.custom<null>(
-			(tui: any, theme: any, _kb: any, done: any) => {
-				const comp = new TaskCenterComponent(
-					theme,
-					() => done(null),
-					tui,
-					(msg, level) => ctx.ui.notify(msg, level),
-				);
-				const dirty = { value: true };
-				const unsub = taskRegistry.subscribe(() => {
-					dirty.value = true;
-					tui.requestRender();
-				});
-				const interval = setInterval(() => {
-					if (dirty.value || taskRegistry.activeCount() > 0) {
-						dirty.value = false;
+	// ---- Fullscreen worker session ----
+	const openTaskCenter = async (ctx: any): Promise<null> => {
+		if (!ctx?.hasUI || taskViewOpen) return null;
+		taskViewOpen = true;
+		try {
+			return await ctx.ui.custom<null>(
+				(tui: any, theme: any, _kb: any, done: any) => {
+					const comp = new TaskCenterComponent(
+						theme,
+						() => done(null),
+						tui,
+						(msg, level) => ctx.ui.notify(msg, level),
+					);
+					const dirty = { value: true };
+					const unsub = taskRegistry.subscribe(() => {
+						dirty.value = true;
 						tui.requestRender();
-					}
-				}, 500);
-				return {
-					render: (w: number) => comp.render(w),
-					invalidate: () => comp.invalidate(),
-					handleInput: (d: string) => {
-						comp.handleInput(d);
-						tui.requestRender();
-					},
-					dispose: () => {
-						clearInterval(interval);
-						unsub();
-					},
-				};
-			},
-			{
-				overlay: true,
-				overlayOptions: {
-					width: "60%",
-					minWidth: 56,
-					maxWidth: 132,
-					maxHeight: "85%",
-					anchor: "right-center",
-					margin: 1,
+					});
+					const interval = setInterval(() => {
+						if (dirty.value || taskRegistry.activeCount() > 0) {
+							dirty.value = false;
+							tui.requestRender();
+						}
+					}, 500);
+					return {
+						render: (w: number) => comp.render(w),
+						invalidate: () => comp.invalidate(),
+						handleInput: (d: string) => {
+							comp.handleInput(d);
+							tui.requestRender();
+						},
+						dispose: () => {
+							clearInterval(interval);
+							unsub();
+						},
+					};
 				},
-			},
-		);
+				{
+					overlay: true,
+					overlayOptions: {
+						width: "100%",
+						maxHeight: "100%",
+						anchor: "center",
+						// Herdr paints a left pane rail on the same terminal.
+						// Start the overlay after it so 1/2/3 never sit on our text.
+						margin:
+							process.env.HERDR_ENV === "1"
+								? { left: 5, top: 0, right: 0, bottom: 0 }
+								: 0,
+					},
+				},
+			);
+		} finally {
+			taskViewOpen = false;
+		}
 	};
 
 	pi.registerCommand("tasks", {
-		description: "Live Task Center for subagent workers",
+		description: "Fullscreen worker session",
 		handler: async (_args, ctx) => {
+			await openTaskCenter(ctx);
+		},
+	});
+
+	pi.registerShortcut("ctrl+shift+t", {
+		description: "Open fullscreen worker session",
+		handler: async (ctx) => {
 			await openTaskCenter(ctx);
 		},
 	});
@@ -150,7 +174,7 @@ export default function harnessUx(pi: ExtensionAPI) {
 				withSession: (c: any) => c.ui?.notify("New session", "info"),
 			}),
 		);
-		add("a:tasks", "Task Center", "live subagent workers", () =>
+		add("a:tasks", "Worker session", "fullscreen subagent view", () =>
 			openTaskCenter(ctx),
 		);
 		add("a:compact", "Compact context", "summarize + free context", () =>

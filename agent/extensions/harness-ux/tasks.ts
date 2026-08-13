@@ -52,6 +52,17 @@ export interface LiveTask {
 	results: LiveWorker[];
 }
 
+export interface WorkerSlot {
+	task: LiveTask;
+	worker: LiveWorker | undefined;
+	workerIndex: number;
+}
+
+export type TranscriptItem =
+	| { type: "thought"; text: string }
+	| { type: "text"; text: string }
+	| { type: "tool"; name: string; args: Record<string, unknown> };
+
 function workerFrom(agent: string, task: string, r?: AnyRecord): LiveWorker {
 	return {
 		agent,
@@ -239,7 +250,9 @@ class TaskRegistry {
 			if (task.endedAt && !done) continue;
 			const w =
 				task.results.find((r) => r.jobId === job.jobId) ||
-				task.results.find((r) => r.agent === job.agent && !r.jobId && r.exitCode === -1);
+				task.results.find(
+					(r) => r.agent === job.agent && !r.jobId && r.exitCode === -1,
+				);
 			if (!w) continue;
 			w.jobId = job.jobId;
 			if (job.worktree) w.worktree = job.worktree;
@@ -268,6 +281,21 @@ class TaskRegistry {
 		return this.order
 			.map((id) => this.tasks.get(id))
 			.filter(Boolean) as LiveTask[];
+	}
+
+	/** Flatten every worker across tasks for ←→ sibling navigation. */
+	listSlots(): WorkerSlot[] {
+		const slots: WorkerSlot[] = [];
+		for (const task of this.list()) {
+			if (task.results.length === 0) {
+				slots.push({ task, worker: undefined, workerIndex: 0 });
+				continue;
+			}
+			task.results.forEach((worker, workerIndex) => {
+				slots.push({ task, worker, workerIndex });
+			});
+		}
+		return slots;
 	}
 
 	activeCount(): number {
@@ -434,4 +462,76 @@ export function workerOutputText(w: LiveWorker): string {
 	const extra = [w.errorMessage, stderr].filter(Boolean);
 	if (extra.length && log) return `${log}\n\n${extra.join("\n")}`;
 	return log;
+}
+
+function toolArgs(part: AnyRecord): Record<string, unknown> {
+	const raw = part.arguments ?? part.args ?? part.input ?? {};
+	return raw && typeof raw === "object" && !Array.isArray(raw) ? raw : {};
+}
+
+/** Structured worker transcript: thoughts, tools, assistant text. */
+export function workerTranscript(
+	messages: any[] | undefined,
+): TranscriptItem[] {
+	const items: TranscriptItem[] = [];
+	for (const msg of messages ?? []) {
+		if (msg?.role !== "assistant") continue;
+		const content = msg.content;
+		if (typeof content === "string") {
+			if (content.trim()) items.push({ type: "text", text: content });
+			continue;
+		}
+		if (!Array.isArray(content)) continue;
+		let thought = "";
+		const flushThought = () => {
+			if (!thought.trim()) return;
+			items.push({ type: "thought", text: thought.trim() });
+			thought = "";
+		};
+		for (const part of content) {
+			if (!part || typeof part !== "object") continue;
+			const t = part.type as string | undefined;
+			if (t === "thinking" || t === "thought" || t === "reasoning") {
+				thought += String(part.thinking ?? part.text ?? "");
+				continue;
+			}
+			if (t === "text" && typeof part.text === "string" && part.text.trim()) {
+				flushThought();
+				items.push({ type: "text", text: part.text });
+				continue;
+			}
+			if (t === "toolCall" || t === "tool_use" || t === "functionCall") {
+				flushThought();
+				items.push({
+					type: "tool",
+					name: String(part.name ?? part.toolName ?? "tool"),
+					args: toolArgs(part),
+				});
+			}
+		}
+		flushThought();
+	}
+	return items;
+}
+
+export function toolPath(args: Record<string, unknown>): string {
+	const raw =
+		args.path ?? args.file_path ?? args.filePath ?? args.file ?? args.target;
+	return typeof raw === "string" ? raw : "";
+}
+
+export function toolCode(args: Record<string, unknown>): string {
+	const raw =
+		args.contents ??
+		args.content ??
+		args.newText ??
+		args.new_string ??
+		args.new_text ??
+		args.text;
+	return typeof raw === "string" ? raw : "";
+}
+
+export function toolCommand(args: Record<string, unknown>): string {
+	const raw = args.command ?? args.cmd;
+	return typeof raw === "string" ? raw : "";
 }

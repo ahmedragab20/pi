@@ -13,6 +13,20 @@ export function fit(s: string, width: number): string {
 	return s + " ".repeat(Math.max(0, width - w));
 }
 
+/** Left + right-aligned suffix, padded to `width`. */
+export function fitEnds(left: string, right: string, width: number): string {
+	const lw = visibleWidth(left);
+	const rw = visibleWidth(right);
+	if (lw + rw >= width) {
+		const keep = Math.max(0, width - rw);
+		return (
+			truncateToWidth(left, keep) +
+			(rw > width ? truncateToWidth(right, width) : right)
+		);
+	}
+	return left + " ".repeat(width - lw - rw) + right;
+}
+
 function rule(theme: any, width: number, fill: string): string {
 	const inner = Math.max(0, width - 2);
 	return fit(theme.fg("borderMuted", `├${fill.repeat(inner)}┤`), width);
@@ -48,7 +62,8 @@ export function labeledMidBorder(
 		body = "─".repeat(inner);
 	}
 	if (visibleWidth(body) > inner) body = "─".repeat(inner);
-	else if (visibleWidth(body) < inner) body += "─".repeat(inner - visibleWidth(body));
+	else if (visibleWidth(body) < inner)
+		body += "─".repeat(inner - visibleWidth(body));
 	return fit(theme.fg("borderMuted", `├${body}┤`), width);
 }
 
