@@ -109,9 +109,9 @@ export default function harnessUx(pi: ExtensionAPI) {
 			{
 				overlay: true,
 				overlayOptions: {
-					width: "52%",
-					minWidth: 48,
-					maxWidth: 120,
+					width: "60%",
+					minWidth: 56,
+					maxWidth: 132,
 					maxHeight: "85%",
 					anchor: "right-center",
 					margin: 1,

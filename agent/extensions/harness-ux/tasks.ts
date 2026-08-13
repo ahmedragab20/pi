@@ -7,6 +7,10 @@
  * subagent extension itself — we only observe its events.
  */
 
+import * as fs from "node:fs";
+import * as path from "node:path";
+import { getAgentDir } from "@earendil-works/pi-coding-agent";
+
 type AnyRecord = Record<string, any>;
 
 const EMPTY_USAGE = () => ({
@@ -52,13 +56,36 @@ function workerFrom(agent: string, task: string, r?: AnyRecord): LiveWorker {
 		task,
 		exitCode: typeof r?.exitCode === "number" ? r.exitCode : -1,
 		stderr: r?.stderr ?? "",
-		model: r?.model,
+		model: r?.model ?? agentModel(agent),
 		stopReason: r?.stopReason,
 		errorMessage: r?.errorMessage,
 		usage: r?.usage ?? EMPTY_USAGE(),
 		messages: Array.isArray(r?.messages) ? r.messages : [],
 		doneAt: r?.doneAt,
 	};
+}
+
+let agentModelCache: Map<string, string> | undefined;
+
+function agentModel(name: string): string | undefined {
+	if (!agentModelCache) {
+		agentModelCache = new Map();
+		try {
+			const dir = path.join(getAgentDir(), "agents");
+			for (const file of fs.readdirSync(dir)) {
+				if (!file.endsWith(".md")) continue;
+				const text = fs.readFileSync(path.join(dir, file), "utf8");
+				const nameMatch = text.match(/^name:\s*(.+)$/m);
+				const modelMatch = text.match(/^model:\s*(.+)$/m);
+				if (nameMatch?.[1] && modelMatch?.[1]) {
+					agentModelCache.set(nameMatch[1].trim(), modelMatch[1].trim());
+				}
+			}
+		} catch {
+			/* agent dir is best-effort */
+		}
+	}
+	return agentModelCache.get(name);
 }
 
 function mergeWorker(dst: LiveWorker, r: AnyRecord): void {
@@ -188,6 +215,7 @@ class TaskRegistry {
 	reset() {
 		this.tasks.clear();
 		this.order = [];
+		agentModelCache = undefined;
 		this.emit();
 	}
 }
@@ -209,6 +237,64 @@ export function fmtTokens(n?: number): string {
 	if (n < 10000) return `${(n / 1000).toFixed(1)}k`;
 	if (n < 1000000) return `${Math.round(n / 1000)}k`;
 	return `${(n / 1000000).toFixed(1)}M`;
+}
+
+const PROVIDER_LABELS: Record<string, string> = {
+	anthropic: "Anthropic",
+	cursor: "Cursor",
+	gemini: "Google",
+	google: "Google",
+	ollama: "Ollama",
+	openai: "OpenAI",
+	"openai-codex": "OpenAI",
+	opencode: "Opencode",
+	"opencode-go": "Opencode Go",
+};
+
+export function splitModel(model?: string): {
+	provider: string;
+	id: string;
+	full: string;
+} {
+	const full = (model ?? "").trim();
+	if (!full) return { provider: "", id: "", full: "" };
+	const i = full.indexOf("/");
+	if (i <= 0) return { provider: "", id: full, full };
+	return { provider: full.slice(0, i), id: full.slice(i + 1), full };
+}
+
+export function formatProviderLabel(provider?: string): string {
+	if (!provider) return "";
+	return (
+		PROVIDER_LABELS[provider] ??
+		provider.replace(/[-_]/g, " ").replace(/\b\w/g, (c) => c.toUpperCase())
+	);
+}
+
+/** Status-bar-style usage chips: turns, tokens, cache, context, cost. */
+export function formatWorkerUsage(w: LiveWorker | undefined): string[] {
+	if (!w) return [];
+	const u = w.usage ?? {};
+	const parts: string[] = [];
+	if (u.turns) parts.push(`${u.turns}t`);
+	if (u.input || u.output)
+		parts.push(`↑${fmtTokens(u.input)} ↓${fmtTokens(u.output)}`);
+	if (u.cacheRead) parts.push(`R${fmtTokens(u.cacheRead)}`);
+	if (u.cacheWrite) parts.push(`W${fmtTokens(u.cacheWrite)}`);
+	if (u.contextTokens) parts.push(`${fmtTokens(u.contextTokens)} ctx`);
+	if (typeof u.cost === "number" && u.cost > 0)
+		parts.push(`$${Number(u.cost).toFixed(3)}`);
+	return parts;
+}
+
+const STDERR_NOISE = /No models match pattern "cursor\//;
+
+export function workerStderrLines(stderr?: string): string[] {
+	if (!stderr?.trim()) return [];
+	return stderr
+		.trim()
+		.split("\n")
+		.filter((line) => !STDERR_NOISE.test(line));
 }
 
 function contentText(content: any): string {
@@ -277,9 +363,10 @@ export function workerLogLines(messages: any[]): string[] {
 /** Plain text for clipboard copy — error/stderr, else the worker log. */
 export function workerOutputText(w: LiveWorker): string {
 	const log = workerLogLines(w.messages).join("\n").trim();
+	const stderr = workerStderrLines(w.stderr).join("\n").trim();
 	if (w.errorMessage && !log) return w.errorMessage;
-	if (w.stderr && !log) return w.stderr.trim();
-	const extra = [w.errorMessage, w.stderr?.trim()].filter(Boolean);
+	if (stderr && !log) return stderr;
+	const extra = [w.errorMessage, stderr].filter(Boolean);
 	if (extra.length && log) return `${log}\n\n${extra.join("\n")}`;
 	return log;
 }

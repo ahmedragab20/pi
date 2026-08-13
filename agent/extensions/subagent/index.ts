@@ -146,6 +146,10 @@ interface UsageStats {
 	turns: number;
 }
 
+function emptyUsage(): UsageStats {
+	return { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0, contextTokens: 0, turns: 0 };
+}
+
 interface SingleResult {
 	agent: string;
 	agentSource: "user" | "project" | "unknown";
@@ -158,6 +162,20 @@ interface SingleResult {
 	stopReason?: string;
 	errorMessage?: string;
 	step?: number;
+}
+
+function pendingResult(agents: AgentConfig[], agentName: string, task: string): SingleResult {
+	const agent = agents.find((a) => a.name === agentName);
+	return {
+		agent: agentName,
+		agentSource: agent?.source ?? "unknown",
+		task,
+		exitCode: -1,
+		messages: [],
+		stderr: "",
+		usage: emptyUsage(),
+		model: agent?.model,
+	};
 }
 
 interface SubagentDetails {
@@ -305,14 +323,17 @@ async function runSingleAgent(
 	}
 
 	// Child pi runs are lean: no extensions (prevents recursion), no skills /
-// prompt-templates (the brief is the whole context), no context files (the
-// lead passes everything in the brief; workers are depth-1, never re-read
-// global lead rules).
-const args: string[] = [
-  "--mode", "json", "-p", "--no-session",
-  "--no-extensions", "--no-skills", "--no-prompt-templates", "--no-context-files",
-];
-if (agent.noTools) args.push("--no-tools");
+	// prompt-templates (the brief is the whole context), no context files (the
+	// lead passes everything in the brief; workers are depth-1, never re-read
+	// global lead rules).
+	// `--models` overrides settings.json `enabledModels` so workers don't warn
+	// about Cursor lead patterns that aren't registered without extensions.
+	const args: string[] = [
+		"--mode", "json", "-p", "--no-session",
+		"--no-extensions", "--no-skills", "--no-prompt-templates", "--no-context-files",
+		"--models", agent.model || "*",
+	];
+	if (agent.noTools) args.push("--no-tools");
 	if (agent.model) args.push("--model", agent.model);
 	if (agent.tools && agent.tools.length > 0) args.push("--tools", agent.tools.join(","));
 
@@ -557,18 +578,10 @@ export default function (pi: ExtensionAPI) {
 				content: [{ type: "text", text: `(running ${liveLabel})` }],
 				details: makeDetails(hasChain ? "chain" : hasTasks ? "parallel" : "single")(
 					params.agent && params.task
-						? [
-								{
-									agent: params.agent,
-									agentSource: "user",
-									task: params.task,
-									exitCode: -1,
-									messages: [],
-									stderr: "",
-									usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0, contextTokens: 0, turns: 0 },
-								},
-							]
-						: [],
+						? [pendingResult(agents, params.agent, params.task)]
+						: params.tasks?.map((t) => pendingResult(agents, t.agent, t.task)) ??
+							params.chain?.map((c) => pendingResult(agents, c.agent, c.task)) ??
+							[],
 				),
 			});
 			const beat = setInterval(() => {
@@ -684,15 +697,7 @@ export default function (pi: ExtensionAPI) {
 
 				// Initialize placeholder results
 				for (let i = 0; i < params.tasks.length; i++) {
-					allResults[i] = {
-						agent: params.tasks[i].agent,
-						agentSource: "unknown",
-						task: params.tasks[i].task,
-						exitCode: -1, // -1 = still running
-						messages: [],
-						stderr: "",
-						usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0, contextTokens: 0, turns: 0 },
-					};
+					allResults[i] = pendingResult(agents, params.tasks[i].agent, params.tasks[i].task);
 				}
 
 				const emitParallelUpdate = () => {

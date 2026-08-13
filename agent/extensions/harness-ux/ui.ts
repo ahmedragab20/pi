@@ -27,6 +27,31 @@ export function midBorder(theme: any, width: number): string {
 	return rule(theme, width, "─");
 }
 
+/** Mid rule with a left label and optional right-aligned hint, e.g. `├─ output ── live┤`. */
+export function labeledMidBorder(
+	theme: any,
+	width: number,
+	label: string,
+	extra = "",
+): string {
+	const inner = Math.max(0, width - 2);
+	const left = label ? `─ ${label} ` : "─";
+	const right = extra ? ` ${extra} ` : "";
+	let body = left;
+	const leftW = visibleWidth(left);
+	const rightW = visibleWidth(right);
+	if (leftW + rightW <= inner) {
+		body = `${left}${"─".repeat(Math.max(0, inner - leftW - rightW))}${right}`;
+	} else if (leftW <= inner) {
+		body = `${left}${"─".repeat(Math.max(0, inner - leftW))}`;
+	} else {
+		body = "─".repeat(inner);
+	}
+	if (visibleWidth(body) > inner) body = "─".repeat(inner);
+	else if (visibleWidth(body) < inner) body += "─".repeat(inner - visibleWidth(body));
+	return fit(theme.fg("borderMuted", `├${body}┤`), width);
+}
+
 export function bottomBorder(theme: any, width: number): string {
 	const inner = Math.max(0, width - 2);
 	return fit(theme.fg("borderAccent", `└${"─".repeat(inner)}┘`), width);

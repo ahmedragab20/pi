@@ -14,14 +14,17 @@ import {
 } from "@earendil-works/pi-tui";
 import {
 	formatElapsed,
-	fmtTokens,
+	formatProviderLabel,
+	formatWorkerUsage,
+	splitModel,
 	taskRegistry,
 	workerLogLines,
 	workerOutputText,
+	workerStderrLines,
 	type LiveTask,
 	type LiveWorker,
 } from "./tasks.ts";
-import { bottomBorder, fit, midBorder, topBorder } from "./ui.ts";
+import { bottomBorder, fit, labeledMidBorder, midBorder, topBorder } from "./ui.ts";
 
 export type TaskCenterNotify = (
 	message: string,
@@ -159,7 +162,7 @@ export class TaskCenterComponent {
 		const running = all.filter((t) => t.endedAt === undefined).length;
 		const done = all.filter((t) => t.endedAt !== undefined).length;
 
-		const chrome = 8; // top, title, 2 mids, bottom, hints + 2 detail headers
+		const chrome = 10; // top, title, 2 mids, 3 meta, output rule, bottom, hints
 		const remaining = Math.max(6, height - chrome);
 		const listCap = this.expanded
 			? Math.max(2, Math.floor(remaining * 0.25))
@@ -219,7 +222,14 @@ export class TaskCenterComponent {
 			}
 		}
 
-		lines.push(midBorder(theme, width));
+		const workerExtra = selected
+			? selected.results.length > 1
+				? `${this.workerIndex + 1}/${selected.results.length}`
+				: selected.endedAt === undefined
+					? "live"
+					: "done"
+			: "";
+		lines.push(labeledMidBorder(theme, width, "worker", workerExtra));
 		lines.push(...this.renderDetail(selected, width, detailBody));
 		lines.push(bottomBorder(theme, width));
 		lines.push(
@@ -339,8 +349,12 @@ export class TaskCenterComponent {
 			task.results.length > 1
 				? theme.fg("dim", ` ×${task.results.length}`)
 				: "";
+		const agentHint =
+			task.mode === "single"
+				? ""
+				: taskAgentHint(task, selected ? this.workerIndex : 0);
 		const brief = taskBrief(task);
-		const row = ` ${caret} ${icon} ${theme.fg("toolTitle", theme.bold(task.label))}${workers}  ${theme.fg("muted", elapsed)}  ${theme.fg("dim", brief)}`;
+		const row = ` ${caret} ${icon} ${theme.fg("toolTitle", theme.bold(task.label))}${workers}${agentHint ? `  ${theme.fg("accent", agentHint)}` : ""}  ${theme.fg("muted", elapsed)}  ${theme.fg("dim", brief)}`;
 		const line = fit(row, width);
 		if (!selected) return line;
 		try {
@@ -360,8 +374,8 @@ export class TaskCenterComponent {
 			const lines = [
 				fit(` ${theme.fg("muted", "Select a task to inspect its worker.")}`, width),
 			];
-			while (lines.length < bodyHeight + 2) lines.push(fit("", width));
-			return lines.slice(0, bodyHeight + 2);
+			while (lines.length < bodyHeight + 4) lines.push(fit("", width));
+			return lines.slice(0, bodyHeight + 4);
 		}
 
 		const workers = task.results;
@@ -378,13 +392,31 @@ export class TaskCenterComponent {
 		const workerLabel = w?.agent ?? task.label;
 		const pager =
 			workers.length > 1
-				? theme.fg("accent", `  ${this.workerIndex + 1}/${workers.length}`)
+				? theme.fg("accent", `${this.workerIndex + 1}/${workers.length}`)
 				: "";
 		const status = running
 			? theme.fg("warning", "running")
 			: w?.exitCode === 0
 				? theme.fg("success", "done")
 				: theme.fg("error", w?.stopReason || "failed");
+
+		const parsed = splitModel(w?.model);
+		const provider = formatProviderLabel(parsed.provider);
+		const modelLabel = parsed.full
+			? theme.fg("text", parsed.full)
+			: running
+				? theme.fg("dim", "resolving…")
+				: theme.fg("dim", "—");
+
+		const usageParts = formatWorkerUsage(w);
+		const metaBits = [
+			provider,
+			elapsed,
+			...usageParts,
+			task.agentScope,
+			w?.agentSource && w.agentSource !== "unknown" ? w.agentSource : "",
+			task.mode !== "single" ? task.mode : "",
+		].filter(Boolean);
 
 		const log = this.detailLog(w);
 		const inner = Math.max(8, width - 4);
@@ -407,35 +439,27 @@ export class TaskCenterComponent {
 		const view = wrapped.slice(this.detailScroll, this.detailScroll + bodyHeight);
 		const above = this.detailScroll;
 		const below = Math.max(0, wrapped.length - this.detailScroll - bodyHeight);
-		const scrollHint =
-			wrapped.length > bodyHeight
-				? theme.fg(
-						"dim",
-						`${above > 0 ? `↑${above}` : ""}${above && below ? " " : ""}${below > 0 ? `↓${below}` : this.followEnd ? "live" : ""}`.trim(),
-					)
-				: running
-					? theme.fg("dim", "live")
-					: "";
+		const scrollHint = wrapped.length > bodyHeight
+			? `${above > 0 ? `↑${above}` : ""}${above && below ? " " : ""}${below > 0 ? `↓${below}` : this.followEnd ? "live" : ""}`.trim()
+			: running
+				? "live"
+				: "";
 
 		const header = fit(
-			` ${wIcon} ${theme.fg("toolTitle", theme.bold(workerLabel))}${pager}  ${status}  ${theme.fg("muted", elapsed)}  ${theme.fg("dim", `[${task.agentScope}]`)}${scrollHint ? `  ${scrollHint}` : ""}`,
+			` ${wIcon} ${theme.fg("toolTitle", theme.bold(workerLabel))}  ${status}${pager ? `  ${pager}` : ""}`,
 			width,
 		);
+		const modelRow = fit(
+			` ${this.metaKey("model")} ${modelLabel}`,
+			width,
+		);
+		const usageRow = fit(
+			` ${this.metaKey("meta")} ${theme.fg("muted", metaBits.join("  ·  ") || "—")}`,
+			width,
+		);
+		const outputRule = labeledMidBorder(theme, width, "output", scrollHint);
 
-		const metaBits: string[] = [];
-		if (w?.model) metaBits.push(w.model);
-		const u = w?.usage ?? {};
-		if (u.turns) metaBits.push(`${u.turns}t`);
-		if (u.input || u.output)
-			metaBits.push(`↑${fmtTokens(u.input)} ↓${fmtTokens(u.output)}`);
-		if (u.cost) metaBits.push(`$${Number(u.cost).toFixed(3)}`);
-		const brief = (w?.task || taskBrief(task)).replace(/\s+/g, " ").trim();
-		const meta = metaBits.length
-			? `${brief}  ${theme.fg("dim", metaBits.join("  "))}`
-			: brief;
-		const sub = fit(`   ${theme.fg("muted", meta)}`, width);
-
-		const lines = [header, sub];
+		const lines = [header, modelRow, usageRow, outputRule];
 		for (let i = 0; i < bodyHeight; i++) {
 			const text = view[i];
 			if (text === undefined) {
@@ -447,19 +471,23 @@ export class TaskCenterComponent {
 					? "accent"
 					: text.startsWith("Error:") || text.startsWith("✗")
 						? "error"
-						: "toolOutput";
+						: text.startsWith("Warning:")
+							? "warning"
+							: "toolOutput";
 			lines.push(fit(`  ${theme.fg(color, text)}`, width));
 		}
 		return lines;
+	}
+
+	private metaKey(label: string): string {
+		return this.theme.fg("dim", label.padEnd(5));
 	}
 
 	private detailLog(w: LiveWorker | undefined): string[] {
 		if (!w) return ["(no worker yet)"];
 		const lines = workerLogLines(w.messages);
 		if (w.errorMessage) lines.push(`Error: ${w.errorMessage}`);
-		if (w.stderr?.trim()) {
-			for (const s of w.stderr.trim().split("\n")) lines.push(s);
-		}
+		for (const s of workerStderrLines(w.stderr)) lines.push(s);
 		if (lines.length === 0) {
 			if (w.exitCode === -1) return ["starting…"];
 			return ["(no output)"];
@@ -473,6 +501,13 @@ function taskBrief(task: LiveTask): string {
 	const flat = first.replace(/\s+/g, " ").trim();
 	if (!flat) return task.mode === "single" ? "" : task.mode;
 	return flat.length > 48 ? `${flat.slice(0, 48)}…` : flat;
+}
+
+function taskAgentHint(task: LiveTask, workerIndex: number): string {
+	const names = task.results.map((r) => r.agent).filter(Boolean);
+	if (names.length === 0) return "";
+	const i = Math.max(0, Math.min(workerIndex, names.length - 1));
+	return names[i] ?? "";
 }
 
 function windowed<T>(
