@@ -13,6 +13,9 @@ export interface AgentConfig {
 	description: string;
 	tools?: string[];
 	model?: string;
+	fallbackModel?: string;
+	fallbackAgent?: string;
+	hidden?: boolean;
 	noTools?: boolean;
 	systemPrompt: string;
 	source: "user" | "project";
@@ -50,24 +53,31 @@ function loadAgentsFromDir(dir: string, source: "user" | "project"): AgentConfig
 			continue;
 		}
 
-		const { frontmatter, body } = parseFrontmatter<Record<string, string>>(content);
+		const { frontmatter, body } = parseFrontmatter<Record<string, string | boolean>>(content);
 
 		if (!frontmatter.name || !frontmatter.description) {
 			continue;
 		}
 
-		const tools = frontmatter.tools
-			?.split(",")
-			.map((t: string) => t.trim())
-			.filter(Boolean);
+		const toolsRaw = frontmatter.tools;
+		const tools =
+			typeof toolsRaw === "string"
+				? toolsRaw.split(",").map((t: string) => t.trim()).filter(Boolean)
+				: undefined;
 
-		const noTools = frontmatter["no-tools"] === "true";
+		const noTools = frontmatter["no-tools"] === "true" || frontmatter["no-tools"] === true;
+		const hidden = frontmatter.hidden === "true" || frontmatter.hidden === true;
+		const fm = frontmatter.fallbackModel || frontmatter["fallback-model"];
+		const fa = frontmatter.fallbackAgent || frontmatter["fallback-agent"];
 
 		agents.push({
-			name: frontmatter.name,
-			description: frontmatter.description,
+			name: String(frontmatter.name),
+			description: String(frontmatter.description),
 			tools: tools && tools.length > 0 ? tools : undefined,
-			model: frontmatter.model,
+			model: frontmatter.model ? String(frontmatter.model) : undefined,
+			fallbackModel: fm ? String(fm) : undefined,
+			fallbackAgent: fa ? String(fa) : undefined,
+			hidden,
 			noTools,
 			systemPrompt: body,
 			source,
@@ -119,10 +129,15 @@ export function discoverAgents(cwd: string, scope: AgentScope): AgentDiscoveryRe
 	return { agents: Array.from(agentMap.values()), projectAgentsDir };
 }
 
+export function visibleAgents(agents: AgentConfig[]): AgentConfig[] {
+	return agents.filter((a) => !a.hidden);
+}
+
 export function formatAgentList(agents: AgentConfig[], maxItems: number): { text: string; remaining: number } {
-	if (agents.length === 0) return { text: "none", remaining: 0 };
-	const listed = agents.slice(0, maxItems);
-	const remaining = agents.length - listed.length;
+	const visible = visibleAgents(agents);
+	if (visible.length === 0) return { text: "none", remaining: 0 };
+	const listed = visible.slice(0, maxItems);
+	const remaining = visible.length - listed.length;
 	return {
 		text: listed.map((a) => `${a.name} (${a.source}): ${a.description}`).join("; "),
 		remaining,

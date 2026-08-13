@@ -17,21 +17,15 @@ Persistent rules for every pi session on this machine. Obey exactly. This is the
 - **Workers** — spawned via the `task` tool (extension `~/.pi/agent/extensions/subagent`). Each runs in an isolated `pi` process with its own context window, role prompt (`~/.pi/agent/agents/*.md`), model, and tool allowlist. **Depth 1 only: workers never spawn workers.**
 - **Vision** — `vision` (`opencode-go/gpt-5.6-luna`) → one-time fallback `vision-free` (`opencode/mimo-v2.5-free`). Pasted images are auto-routed by `vision-router`; `[VISION DESCRIPTION]` is injected before the lead sees the turn.
 
-## Action flow (one request, end to end)
-
-**Request → route → optional plan approval → implement / delegate → tests & diagnostics → diff review.**
-
-1. **Route** — first match of lead routing below: images → vision (one fallback), design / debugging / fixes / review → lead, mechanical chores → the one matching worker.
-2. **Plan approval (optional)** — non-trivial changes: `/plan` through diffing, human verdict before any code.
-3. **Implement / delegate** — lead implements substantive parts; each chore goes to exactly one scoped worker — one chore per `task` call, depth 1 (workers never recurse).
-4. **Tests / diagnostics** — `task` `tests` / `lint` for suite runs and diagnostics; lead judges the evidence.
-5. **Diff review** — hand the working-tree diff to the human (`/review`), apply the `/finish` handoff, print the URL.
-
 ## Lead routing (first match)
 
-1. **Images** → prefer the injected `[VISION DESCRIPTION]` from vision-router. Else `task` agent `vision` (then `vision-free` once).
+Request → route → optional `/plan` approval → implement / delegate → tests → `/review`.
+
+1. **Images** → prefer the injected `[VISION DESCRIPTION]` from vision-router. Else `task` agent `vision` (spawn retries `vision-free` once).
 2. **Lead does it:** design, architecture, multi-step reasoning, root-cause debugging, the TDD loop, fixes, scoped implementation, review, synthesis, tiny ≤2-tool tasks.
 3. **Else `task` the matching worker** — chores and bulk tool work go to workers. Keep your own turns short: decide, brief, check, reply.
+
+Bug-fix TDD details: read the `harness-tdd` skill.
 
 ## Anti-bloat `task` contract (you enforce this)
 
@@ -45,12 +39,11 @@ Every `task` call MUST be:
 6. **No "let me know if unclear"** — workers execute. If a directive needs clarification, rewrite it.
 7. **Compact prompts** — long prose gets paid for twice.
 8. **Tighten on poor returns** — vague results call for stricter format on the next call, not more prose.
+9. **`background: true`** when the result is not needed before the next lead action. Do not background a chain.
 
-Free worker fails (error / quota / timeout) → **retry once with its `*-paid` twin** → if both fail, report to the user with evidence; don't silently fall back.
+Spawn retries quota / rate-limit / auth / unknown-model **once** (paid Flash, or `vision-free` for vision). Do not pass `agent: worker-paid` unless debugging. If both attempts fail, report with evidence; do not re-task.
 
-## TDD bug loop (lead ↔ `tests`)
-
-Hypothesis → `task` `tests` writes ONE failing test + runs the exact command → lead judges → tighter test (deeper layer) or lead `edit`s the fix → `task` `tests` verifies. The lead owns hypothesis, loop decisions, and the fix. `tests` owns test code and execution only. The lead never writes reproduction tests.
+Parallel writers run in git worktrees. Merge yourself; the spawn layer never auto-merges.
 
 ## Chore rule (STRICT for leads)
 
@@ -60,22 +53,15 @@ Chores (tests/fixtures/lint/docs/git/memory/compression/mechanical CRUD) → `ta
 
 **Not chores — yours:** `git status`, small `git diff`, `git log`, isolated single-file `tsc --noEmit` on the file under inspection, reading official docs, design / logic / integration / debugging / architecture / fix-writing.
 
-## Diffing is core (human-AI review loop)
+## Diffing
 
-Diffing is the first-class review surface of this harness. The skills live in `~/.agents/skills/diffing*/` and are loaded automatically.
+Follow the `diffing-*` skills. Always print the review/plan URL before `await_review` / `await_plan_review`. Plans live under `~/.diffing/`, never in the consumer tree. Never mutate GitHub without explicit user authorization.
 
-- **Plans:** any non-trivial implementation plan goes through diffing for human approval **before** coding. Use `/plan` (or the `diffing-plan-review` skill): draft the plan under `~/.diffing/<repo>/plan-sources/` — **never in the consumer working tree** — submit with the plan ID, and obey the verdict (`approved` → implement, `changes-requested` → revise + resubmit same planId, `rejected` → stop, `comment-only` → reply only, no product edits).
-- **Reviews:** working-tree or PR changes → `/review` (start/reopen the diffing UI and hand it to the human), `/finish` (wait for the human's handoff, then apply requested edits, answer questions, resolve threads). Prefer the `diffing` MCP server when bound; else the `diffing` CLI.
-- **URLs:** ALWAYS print the diffing review/plan URL in your chat message before starting a session or waiting on a verdict. Never `await_review`/`await_plan_review` without having printed the URL in the same or immediately prior message. Repeat the URL on retries.
-- **PRs:** read with `diffing-pr-read`; address feedback with `diffing-pr-address`. Never push, reply, resolve, or otherwise mutate GitHub without explicit user authorization.
-- Never write plans, notes, or scratch files into the consumer working tree — keep agent working files under `~/.diffing/`.
+**Read diffs scoped.** Prefer inspect (`summary` → `--path` files/search/slice). Full skill: `harness-diff-read`. `diff-reader` is fallback for a path-scoped dump only.
 
 ## Commits
 
-- **Mandatory pre-commit check:** before every commit, inspect the proposed message and confirm it follows Conventional Commits: `<type>(<optional-scope>): <description>`. Never run `git commit` until this check passes.
-- Allowed common types: `feat`, `fix`, `docs`, `refactor`, `test`, `chore`, `build`, `ci`, `perf`, `style`, `revert`.
-- Use `!` before `:` or a `BREAKING CHANGE:` footer for breaking changes. Keep the description imperative and concise.
-- **No `Co-authored-by:` trailers and no agent/bot attribution, ever.** Commits are authored by the human only. When creating commits, use only the human-authored title and body; strip any agent attribution trailers. (If the user explicitly asks for a real-person co-author, follow that.)
+Conventional Commits only: `<type>(<optional-scope>): <description>`. No `Co-authored-by:` trailers and no agent/bot attribution.
 
 ## No infinite subagent loops
 
@@ -89,12 +75,6 @@ Diffing is the first-class review surface of this harness. The skills live in `~
 
 - **Accuracy overrides cost.** Never choose a cheaper path if it increases the chance of incorrect implementation, unsafe command, or data loss.
 - **Evidence.** No correctness claim without evidence (inspected files, command output, tests, docs, or vision descriptions you received).
-- **Compress before reasoning.** Long output / logs / diffs → `task` the matching reader (terminal-reader / log-reader / diff-reader); absorb the packet.
+- **Compress before reasoning.** Long output / logs → `task` `terminal-reader` / `log-reader`. Long diffs → `harness-diff-read` (inspect first; `diff-reader` only for a path-scoped dump).
 - **Stop and ask** when requirements are ambiguous with materially different implementations, a command may be destructive or irreversible, confidence is below 60, or required inputs are missing.
 - After implementing, reason over worker output; suite runs are chores (delegate to `tests`).
-
-## Neovim-friendly usage
-
-- `Ctrl+G` opens your external editor (nvim) for long input; `@file` references a file; `!cmd` runs a shell command and sends output to the model; `!!cmd` runs hidden.
-- `Esc` is vim (Insert → Normal). `Ctrl+C` interrupts the agent. `Ctrl+X` clears the editor.
-- `/tree`, `/fork`, `/compact` are your session tools. `Alt+Enter` queues follow-up work.

@@ -6,7 +6,8 @@
  * - footer   → live "◐ N tasks" status segment while workers run
  *
  * Built purely on pi's extension API; observes the `task` tool's
- * tool_execution_* events so it never patches the subagent extension.
+ * tool_execution_* events and `pi.events` `task:*` job updates so
+ * background workers stay visible after the parent tool returns.
  */
 import * as path from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
@@ -45,6 +46,9 @@ export default function harnessUx(pi: ExtensionAPI) {
 		if (event.toolName !== "task") return;
 		taskRegistry.finish(event.toolCallId, event.result, event.isError);
 	});
+	pi.events.on("task:start", (job) => taskRegistry.applyJob(job as Record<string, any>));
+	pi.events.on("task:update", (job) => taskRegistry.applyJob(job as Record<string, any>));
+	pi.events.on("task:end", (job) => taskRegistry.applyJob(job as Record<string, any>));
 
 	// ---- Footer status segment ----
 	const refreshStatus = () => {

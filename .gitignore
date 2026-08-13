@@ -14,6 +14,10 @@
 /agent/sessions/
 /agent/vision/
 
+# Efficiency extension runtime (tool dumps + global memory files)
+/agent/tmp/
+/agent/memory/
+
 # Idle-wait worker runtime (logs + pids leak absolute paths)
 /agent/waiting/
 

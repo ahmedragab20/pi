@@ -1,5 +1,6 @@
 ---
 name: terminal-reader-paid
+hidden: true
 description: Compresses large terminal output (provided in the brief) into errors, warnings, first failure, likely root cause, and relevant files. Pure reasoning — no tools. Hands the compressed packet back to the lead. Paid retry twin used once when the free tier is unavailable, rate-limited, or over quota.
 no-tools: true
 model: opencode-go/deepseek-v4-flash

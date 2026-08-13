@@ -1,5 +1,6 @@
 ---
 name: memory-paid
+hidden: true
 description: Maintains rolling repository memory and refreshes project summaries after significant changes. Follows the lead's instructions and hands back the result. Never spawns subagents (depth 1). Paid retry twin used once when the free tier is unavailable, rate-limited, or over quota.
 tools: read, bash, edit, write, grep, find, ls
 model: opencode-go/deepseek-v4-flash

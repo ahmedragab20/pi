@@ -1,5 +1,6 @@
 ---
 name: vision-free
+hidden: true
 description: Free vision fallback when the primary vision model is unavailable, rate-limited, or over quota. Describes image files (paths in the brief) as structured markdown. Does not implement, debug, or take actions.
 tools: read, bash
 model: opencode/mimo-v2.5-free

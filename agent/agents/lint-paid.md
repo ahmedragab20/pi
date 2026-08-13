@@ -1,5 +1,6 @@
 ---
 name: lint-paid
+hidden: true
 description: Handles formatting, lint, imports, and style without intentional runtime behavior changes. Runs the exact commands in the brief. Never spawns subagents (depth 1). Paid retry twin used once when the free tier is unavailable, rate-limited, or over quota.
 tools: read, bash, edit, write, grep, find, ls
 model: opencode-go/deepseek-v4-flash

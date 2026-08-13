@@ -36,6 +36,9 @@ export interface LiveWorker {
 	usage: AnyRecord;
 	messages: any[];
 	doneAt?: number;
+	jobId?: string;
+	worktree?: string;
+	packetPath?: string;
 }
 
 export interface LiveTask {
@@ -62,6 +65,9 @@ function workerFrom(agent: string, task: string, r?: AnyRecord): LiveWorker {
 		usage: r?.usage ?? EMPTY_USAGE(),
 		messages: Array.isArray(r?.messages) ? r.messages : [],
 		doneAt: r?.doneAt,
+		jobId: r?.jobId,
+		worktree: r?.worktree,
+		packetPath: r?.packetPath,
 	};
 }
 
@@ -98,6 +104,9 @@ function mergeWorker(dst: LiveWorker, r: AnyRecord): void {
 	dst.errorMessage = r.errorMessage ?? dst.errorMessage;
 	if (r.usage) dst.usage = r.usage;
 	if (Array.isArray(r.messages)) dst.messages = r.messages;
+	if (r.jobId) dst.jobId = r.jobId;
+	if (r.worktree) dst.worktree = r.worktree;
+	if (r.packetPath) dst.packetPath = r.packetPath;
 }
 
 class TaskRegistry {
@@ -185,6 +194,29 @@ class TaskRegistry {
 	finish(id: string, result: AnyRecord, isError: boolean) {
 		const task = this.tasks.get(id);
 		if (!task) return;
+		if (result?.details?.background) {
+			const results = result?.details?.results;
+			if (Array.isArray(results)) {
+				for (let i = 0; i < results.length; i++) {
+					const r = results[i];
+					if (i < task.results.length) {
+						const w = task.results[i];
+						if (r?.jobId) w.jobId = r.jobId;
+						if (r?.packetPath) w.packetPath = r.packetPath;
+						if (r?.worktree) w.worktree = r.worktree;
+					} else {
+						task.results.push(workerFrom(r?.agent ?? "?", r?.task ?? "", r));
+					}
+				}
+			}
+			if (task.results.every((w) => w.exitCode !== -1)) {
+				task.endedAt ??= Date.now();
+			} else {
+				task.endedAt = undefined;
+			}
+			this.emit();
+			return;
+		}
 		task.endedAt = Date.now();
 		task.isError = isError;
 		const results = result?.details?.results;
@@ -196,6 +228,39 @@ class TaskRegistry {
 		} else {
 			for (const w of task.results) w.doneAt = Date.now();
 		}
+		this.emit();
+	}
+
+	applyJob(job: AnyRecord) {
+		if (!job?.jobId) return;
+		const status = job.status as string | undefined;
+		const done = status && status !== "running";
+		for (const task of this.tasks.values()) {
+			if (task.endedAt && !done) continue;
+			const w =
+				task.results.find((r) => r.jobId === job.jobId) ||
+				task.results.find((r) => r.agent === job.agent && !r.jobId && r.exitCode === -1);
+			if (!w) continue;
+			w.jobId = job.jobId;
+			if (job.worktree) w.worktree = job.worktree;
+			if (job.packetPath) w.packetPath = job.packetPath;
+			if (done) {
+				w.exitCode = status === "done" ? 0 : 1;
+				w.doneAt = job.endedAt ?? Date.now();
+				if (status === "cancelled") w.stopReason = "aborted";
+				if (task.results.every((x) => x.exitCode !== -1)) {
+					task.endedAt = Date.now();
+					task.isError = task.results.some((x) => x.exitCode !== 0);
+				}
+			}
+			this.emit();
+			return;
+		}
+		if (done) return;
+		const id = `job:${job.jobId}`;
+		this.start(id, { agent: job.agent, task: job.task ?? "" });
+		const task = this.tasks.get(id);
+		if (task?.results[0]) task.results[0].jobId = job.jobId;
 		this.emit();
 	}
 

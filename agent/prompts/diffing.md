@@ -11,4 +11,4 @@ Route by intent:
 - `pr <number|url>` → read with `diffing-pr-read`; if the user asks to address feedback, use `diffing-pr-address` (do not push or mutate GitHub without explicit authorization).
 - `status` → call `review_session_status` (MCP) or `diffing url` to report whether a review server is running and what repo it serves.
 
-Always: read the SKILL.md for the route you take — it is the source of truth for the CLI/MCP contract. ALWAYS print the diffing review/plan URL in your message before starting a session or waiting on a verdict. Never write plans, notes, or scratch files into the consumer working tree — keep agent working files under `~/.diffing/`.
+Always: read the SKILL.md for the route you take — it is the source of truth for the CLI/MCP contract. ALWAYS print the diffing review/plan URL in your message before starting a session or waiting on a verdict. Never write plans, notes, or scratch files into the consumer working tree — keep agent working files under `~/.diffing/`. Summarize diffs with inspect (`harness-diff-read`: `summary` → `--path` files/slice); do not dump the whole patch into `diff-reader`.

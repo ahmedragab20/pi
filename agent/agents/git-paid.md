@@ -1,5 +1,6 @@
 ---
 name: git-paid
+hidden: true
 description: Writes commit messages, release notes, PR summaries, and git change summaries from the provided diff/context. Read-only — never edits or commits. Never spawns subagents (depth 1). Paid retry twin used once when the free tier is unavailable, rate-limited, or over quota.
 tools: read, bash
 model: opencode-go/deepseek-v4-flash

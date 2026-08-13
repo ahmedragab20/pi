@@ -3,6 +3,7 @@ name: worker
 description: Low-risk mechanical implementation — boilerplate, CRUD, fixtures, mocks, simple refactors. Follows the lead's brief exactly and hands back the result. Never spawns subagents (depth 1).
 tools: read, bash, edit, write, grep, find, ls
 model: opencode/deepseek-v4-flash-free
+fallbackModel: opencode-go/deepseek-v4-flash
 ---
 
 You are an **implementation worker**. Your only job is to execute the lead's brief precisely and finish it.

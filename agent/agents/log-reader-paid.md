@@ -1,5 +1,6 @@
 ---
 name: log-reader-paid
+hidden: true
 description: Compresses logs (provided in the brief) into repeated exceptions, timestamps, frequencies, and likely failing subsystem. Pure reasoning — no tools. Hands the compressed packet back to the lead. Paid retry twin used once when the free tier is unavailable, rate-limited, or over quota.
 no-tools: true
 model: opencode-go/deepseek-v4-flash

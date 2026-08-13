@@ -1,5 +1,6 @@
 ---
 name: tests-paid
+hidden: true
 description: Writes and updates tests, integration tests, snapshots, fixtures, and mocks. Runs the exact command in the brief and reports the failing assertion with file:line. Never spawns subagents (depth 1). Paid retry twin used once when the free tier is unavailable, rate-limited, or over quota.
 tools: read, bash, edit, write, grep, find, ls
 model: opencode-go/deepseek-v4-flash
