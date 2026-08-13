@@ -5,7 +5,7 @@ This repo is the pi-native port of the opencode AI Engineering System
 (subagents + vision routing) merged with the Cursor leader/worker and
 diffing-first workflow — stored as a dotfiles-style git repo at `~/.pi`.
 
-**pi is the active harness.** Default lead: `cursor/grok-4.6` @ medium.
+**pi is the active harness.** Default lead: `xai/grok-4.6` @ medium.
 
 ## Layout
 
@@ -38,7 +38,7 @@ diffing-first workflow — stored as a dotfiles-style git repo at `~/.pi`.
 │   ├── prompts/              — /diffing /plan /review /finish /commit
 │   │                           /explore /implement
 │   ├── themes/               — rose-pine (high-contrast TUI syntax)
-│   ├── settings.json         — cursor/grok-4.6 default, Ctrl+P cycle,
+│   ├── settings.json         — xai/grok-4.6 default, Ctrl+P cycle,
 │   │                           compact TUI, nvim editor
 │   ├── models.json           — model definitions
 │   └── keybindings.json      — vim-style editing; Ctrl+C interrupts

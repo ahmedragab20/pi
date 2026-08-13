@@ -6,7 +6,7 @@ leader/worker and diffing-first workflow. Built for a nerd neovim user: vim
 keybindings, nvim external editor, cheap Flash workers, human-in-the-loop
 review everywhere.
 
-**pi is the active harness.** Default lead: `cursor/grok-4.6` @ medium.
+**pi is the active harness.** Default lead: `xai/grok-4.6` @ medium.
 
 ## Architecture — Smart Lead, Workers Follow
 
@@ -46,10 +46,12 @@ with one `vision-free` fallback.
 
 ```
 ~/.pi/agent/
-├── settings.json          — default cursor/grok-4.6 @ medium, Ctrl+P cycle
+├── settings.json          — default xai/grok-4.6 @ medium, Ctrl+P cycle
 │                             (enabledModels), compact TUI, nvim editor
-├── models.json            — model definitions (openai-codex/gpt-5.6-sol-1m:
-│                             1.05M context, long-context pricing above 272K)
+├── models.json            — model definitions (xai/grok-4.6: 500K context,
+│                             $2/$6, long-context $4/$12 above 200K input;
+│                             openai-codex/gpt-5.6-sol-1m: 1.05M context,
+│                             long-context pricing above 272K)
 ├── keybindings.json       — vim-style editing; Ctrl+C interrupts, Esc is vim
 ├── AGENTS.md              — always-on card (routing, chore, task contract,
 │                             scoped diffs, no-attribution)
@@ -80,13 +82,14 @@ with one `vision-free` fallback.
 
 ## Model Inventory
 
-`settings.json` is authoritative. **Default:** `cursor` / `grok-4.6` @ medium.
+`settings.json` is authoritative. **Default:** `xai` / `grok-4.6` @ medium.
 **Ctrl+P cycles `enabledModels` (in order):**
 
 | Model | Provider | Role |
 | ------- | ---------- | ------ |
 | `opencode-go/deepseek-v4-pro` | Go bundle | Lead |
-| `cursor/grok-4.6` | Cursor | Default lead |
+| `xai/grok-4.6` | xai | Default lead — 500K context |
+| `cursor/grok-4.6` | Cursor | Lead |
 | `openai-codex/gpt-5.6-sol` | openai-codex | Lead — 272K window |
 | `cursor/claude-fable-5@300k` | Cursor | Lead — Claude, standard 300K |
 | `opencode-go/kimi-k3` | Go bundle | Lead — coding |
@@ -100,6 +103,10 @@ Everything else stays on `/model` (not the cycle): Terra, Luna, GLM, Opus `@1m`,
 Fable `@1m`, MiniMax, Qwen. Worker free twins (`opencode/deepseek-v4-flash-free`,
 `opencode/mimo-v2.5-free`) are auto-provisioned outside the cycle and still
 used by `agents/*.md`.
+
+Default lead `xai/grok-4.6` is a custom merge in `models.json`: openai-responses
+API, 500K context, $2/$6 (long-context $4/$12 above 200K input), thinking
+low/medium/high/xhigh.
 
 `gpt-5.6-sol-1m` is opt-in 1.05M context (rewrites to upstream `gpt-5.6-sol`;
 long-context pricing above 272K input). Same pattern on Cursor Fable/Opus:
