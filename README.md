@@ -14,20 +14,25 @@ diffing-first workflow — stored as a dotfiles-style git repo at `~/.pi`.
 ├── agent/                    — all pi config lives here
 │   ├── AGENTS.md             — the system rules (routing, chore rule, task
 │   │                           contract, TDD loop, diffing rules, no-attribution)
-│   ├── agents/               — 21 worker definitions (markdown + frontmatter)
+│   ├── agents/               — 22 worker definitions (markdown + frontmatter)
 │   ├── extensions/
+│   │   ├── 00-fff-defaults.ts — PI_FFF_MODE=override, no $HOME index
+│   │   ├── 00-paste-chips.ts — [Image #N] / [Paste #N] chips
 │   │   ├── subagent/         — task tool: spawns isolated worker processes
 │   │   ├── cursor-lazy/      — registers the Cursor provider at startup
 │   │   │                       from the disk-cached catalog
 │   │   ├── vision-router.ts  — auto vision delegation for pasted images
 │   │   ├── sol-1m-alias.ts   — rewrites gpt-5.6-sol-1m → upstream gpt-5.6-sol
-│   │   └── context-efficiency.ts
+│   │   ├── context-efficiency.ts
+│   │   └── pi-tool-repair.json
+│   ├── zentui.json           — OpenCode editor + Starship footer
 │   ├── prompts/              — /diffing /plan /review /finish /commit
 │   │                           (+ /explore /implement)
-│   ├── themes/               — rose-pine.json
-│   ├── settings.json         — default model, thinking level, compaction
+│   ├── themes/               — rose-pine.json (card chrome)
+│   ├── settings.json         — default: opencode-go/deepseek-v4-pro @ medium,
+│   │                           5-model Ctrl+P cycle, compact TUI
 │   ├── models.json           — model definitions
-│   └── keybindings.json      — vim-style editing bindings
+│   └── keybindings.json      — vim-style editing; Ctrl+C interrupts
 └── .gitignore
 ```
 
@@ -35,6 +40,8 @@ diffing-first workflow — stored as a dotfiles-style git repo at `~/.pi`.
 along with machine-specific `trust.json` / cursor-sdk model cache,
 `agent/sessions/` (transcripts), `agent/vision/` (pasted images), and the
 local `agent/extensions/diffing` symlink.
+
+Piolium is not loaded globally. Install it in the target repo when you audit.
 
 ## How it works
 

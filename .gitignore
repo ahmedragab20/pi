@@ -14,5 +14,8 @@
 /agent/sessions/
 /agent/vision/
 
+# Idle-wait worker runtime (logs + pids leak absolute paths)
+/agent/waiting/
+
 # Symlink to local dev checkout (leaks absolute path)
 /agent/extensions/diffing

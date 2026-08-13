@@ -96,4 +96,5 @@ Diffing is the first-class review surface of this harness. The skills live in `~
 ## Neovim-friendly usage
 
 - `Ctrl+G` opens your external editor (nvim) for long input; `@file` references a file; `!cmd` runs a shell command and sends output to the model; `!!cmd` runs hidden.
+- `Esc` is vim (Insert → Normal). `Ctrl+C` interrupts the agent. `Ctrl+X` clears the editor.
 - `/tree`, `/fork`, `/compact` are your session tools. `Alt+Enter` queues follow-up work.

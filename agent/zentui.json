@@ -1,0 +1,121 @@
+{
+  "projectRefreshIntervalMs": 30000,
+  "components": {
+    "editor": {
+      "enabled": false,
+      "style": "opencode",
+      "colorSource": "theme",
+      "borderColorMode": "static",
+      "modelLabel": "name",
+      "viewportIndicators": true,
+      "styles": {
+        "opencode": {
+          "metadataFormat": "$model( · $provider)( · $thinking)"
+        },
+        "opencode-copy-friendly": {
+          "metadataFormat": "$model( · $provider)( · $thinking)"
+        },
+        "minimalist": {
+          "pathDisplay": "compact",
+          "contextFormat": "percent",
+          "contextGauge": false,
+          "showSessionName": true,
+          "showTimer": true,
+          "showCost": true,
+          "showGit": true,
+          "contextThresholds": {
+            "warning": 70,
+            "error": 90
+          }
+        }
+      }
+    },
+    "userMessages": {
+      "enabled": true,
+      "style": "labeled",
+      "colorSource": "theme",
+      "styles": {
+        "framed": {},
+        "framed-copy-friendly": {},
+        "compact": {},
+        "labeled": {}
+      }
+    },
+    "selectorBorders": {
+      "enabled": true,
+      "style": "zentui",
+      "colorSource": "theme"
+    },
+    "footer": {
+      "style": "starship",
+      "colorSource": "theme",
+      "modelLabel": "id",
+      "styles": {
+        "starship": {
+          "format": "$cwd( on $git_branch)( $git_status)$fill($model)($sep$provider)($sep$thinking)($sep$context)($sep$tokens)($sep$cost)",
+          "responsive": true,
+          "compactFormat": "$cwd$wrap(on $git_branch) $git_status$wrap$context$wrap_sep$tokens$wrap_sep$model$wrap_sep$thinking",
+          "compactMaxLines": 2,
+          "separator": "pipe",
+          "contextStyle": "text",
+          "contextThresholds": {
+            "warning": 70,
+            "error": 90
+          },
+          "pathDisplay": {
+            "mode": "basename",
+            "depth": 0
+          },
+          "segments": {
+            "cwd": true,
+            "sessionName": false,
+            "gitBranch": true,
+            "gitStatus": true,
+            "gitCounts": false,
+            "gitCommit": false,
+            "gitMetrics": false,
+            "runtime": false,
+            "modelInfo": true,
+            "context": true,
+            "tokens": true,
+            "cost": true,
+            "sessionDuration": false,
+            "username": false,
+            "time": false,
+            "os": false,
+            "packageVersion": false
+          },
+          "gitBranch": {
+            "maxLength": 10
+          },
+          "gitCommit": {
+            "hashLength": 7,
+            "onlyDetached": true,
+            "showTag": true
+          },
+          "gitMetrics": {
+            "onlyNonzero": true,
+            "ignoreSubmodules": false
+          },
+          "extensionStatuses": {
+            "defaultPlacement": "right",
+            "placements": {},
+            "colorModes": {
+              "diffing": "zentui"
+            }
+          }
+        }
+      }
+    }
+  },
+  "icons": {
+    "mode": "auto"
+  },
+  "colors": {
+    "editorAccent": "accent",
+    "editorBorder": "borderMuted",
+    "editorModel": "accent",
+    "editorProvider": "muted",
+    "editorThinking": "muted"
+  }
+}

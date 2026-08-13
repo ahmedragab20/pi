@@ -4,13 +4,14 @@
   "defaultProvider": "opencode-go",
   "defaultModel": "deepseek-v4-pro",
   "defaultThinkingLevel": "high",
-  "hideThinkingBlock": true,
+  "hideThinkingBlock": false,
   "externalEditor": "nvim",
   "quietStartup": true,
-  "defaultProjectTrust": "always",
+  "defaultProjectTrust": "ask",
+  "collapseChangelog": true,
   "compaction": {
     "enabled": true,
-    "reserveTokens": 24576,
+    "reserveTokens": 16384,
     "keepRecentTokens": 20000
   },
   "branchSummary": {
@@ -27,49 +28,70 @@
     }
   },
   "enabledModels": [
-    "openai-codex/gpt-5.6-sol",
-    "openai-codex/gpt-5.6-sol-1m",
-    "openai-codex/gpt-5.6-terra",
-    "openai-codex/gpt-5.6-luna",
-    "cursor/grok-4.6",
-    "cursor/composer-2.5",
-    "cursor/kimi-k3",
-    "cursor/glm-5.2",
-    "cursor/claude-fable-5@300k",
-    "cursor/claude-fable-5@1m",
-    "cursor/claude-opus-5@300k",
-    "cursor/claude-opus-5@1m",
-    "opencode-go/deepseek-v4-flash",
     "opencode-go/deepseek-v4-pro",
-    "opencode-go/glm-5.2",
+    "cursor/grok-4.6",
+    "openai-codex/gpt-5.6-sol",
+    "cursor/claude-fable-5@300k",
     "opencode-go/kimi-k3",
-    "opencode-go/minimax-m3",
-    "opencode-go/qwen3.8-max"
+    "opencode-go/deepseek-v4-flash",
+    "cursor/composer-2.5",
+    "openai-codex/gpt-5.6-sol-1m",
+    "cursor/claude-opus-5@300k",
+    "cursor/kimi-k3"
   ],
   "warnings": {
     "anthropicExtraUsage": true
   },
   "packages": [
-    "npm:@vigolium/piolium",
     "npm:pi-tool-repair",
     "npm:pi-lens",
     "npm:@ff-labs/pi-fff",
     "npm:@juicesharp/rpiv-ask-user-question",
-    "npm:pi-vim"
+    "npm:pi-vim",
+    "npm:pi-zentui"
+  ],
+  "defaultTools": [
+    "read",
+    "bash",
+    "edit",
+    "write",
+    "ls"
   ],
   "showHardwareCursor": false,
   "editorPaddingX": 1,
+  "outputPad": 0,
   "enableInstallTelemetry": false,
-  "treeFilterMode": "all",
+  "treeFilterMode": "no-tools",
   "tuiMode": "fullscreen",
   "fullscreenScrollbar": "hidden",
+  "doubleEscapeAction": "none",
+  "showCacheMissNotices": false,
+  "autocompleteMaxVisible": 6,
+  "markdown": {
+    "codeBlockIndent": "",
+    "mermaid": "final"
+  },
+  "terminal": {
+    "imageWidthCells": 40
+  },
   "piVim": {
     "modeColors": {
       "insert": "borderMuted",
       "normal": "borderAccent",
       "visual": "customMessageLabel",
       "ex": "warning"
+    },
+    "borderSync": {
+      "insert": "host",
+      "normal": "host",
+      "visual": "mode",
+      "ex": "mode"
+    },
+    "labelSync": {
+      "insert": "host",
+      "normal": "mode",
+      "visual": "mode",
+      "ex": "mode"
     }
-  },
-  "showCacheMissNotices": true
+  }
 }

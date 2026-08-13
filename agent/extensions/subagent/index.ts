@@ -180,7 +180,20 @@ function getFinalOutput(messages: Message[]): string {
 }
 
 function isFailedResult(result: SingleResult): boolean {
+	if (result.exitCode === -1) return false;
 	return result.exitCode !== 0 || result.stopReason === "error" || result.stopReason === "aborted";
+}
+
+function isRunningResult(result: SingleResult): boolean {
+	return result.exitCode === -1;
+}
+
+function formatElapsed(startedAt: number | undefined, endedAt?: number): string {
+	if (!startedAt) return "";
+	const ms = Math.max(0, (endedAt ?? Date.now()) - startedAt);
+	const s = Math.floor(ms / 1000);
+	if (s < 60) return `${s}s`;
+	return `${Math.floor(s / 60)}m ${s % 60}s`;
 }
 
 function getResultOutput(result: SingleResult): string {
@@ -310,7 +323,7 @@ if (agent.noTools) args.push("--no-tools");
 		agent: agentName,
 		agentSource: agent.source,
 		task,
-		exitCode: 0,
+		exitCode: -1,
 		messages: [],
 		stderr: "",
 		usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0, contextTokens: 0, turns: 0 },
@@ -328,6 +341,7 @@ if (agent.noTools) args.push("--no-tools");
 	};
 
 	try {
+		emitUpdate();
 		if (agent.systemPrompt.trim()) {
 			const tmp = await writePromptToTempFile(agent.name, agent.systemPrompt);
 			tmpPromptDir = tmp.dir;
@@ -353,6 +367,17 @@ if (agent.noTools) args.push("--no-tools");
 				try {
 					event = JSON.parse(line);
 				} catch {
+					return;
+				}
+
+				if (event.type === "tool_execution_start") {
+					const name = (event.toolName || event.name || "tool") as string;
+					const args = (event.args || {}) as Record<string, unknown>;
+					currentResult.messages.push({
+						role: "assistant",
+						content: [{ type: "toolCall", name, arguments: args }],
+					} as Message);
+					emitUpdate();
 					return;
 				}
 
@@ -499,6 +524,58 @@ export default function (pi: ExtensionAPI) {
 					results,
 				});
 
+			const liveLabel =
+				params.agent ||
+				(params.tasks?.length
+					? `parallel ×${params.tasks.length}`
+					: params.chain?.length
+						? `chain ×${params.chain.length}`
+						: "task");
+			const liveStarted = Date.now();
+			const paintChrome = (msg: string) => {
+				if (!ctx.hasUI) return;
+				try {
+					ctx.ui.setWidget("task", [msg], { placement: "aboveEditor" });
+					ctx.ui.setStatus("task", msg);
+					ctx.ui.setWorkingMessage(msg);
+				} catch {
+					/* ignore */
+				}
+			};
+			const clearChrome = () => {
+				if (!ctx.hasUI) return;
+				try {
+					ctx.ui.setWidget("task", undefined);
+					ctx.ui.setStatus("task", undefined);
+					ctx.ui.setWorkingMessage();
+				} catch {
+					/* ignore */
+				}
+			};
+			paintChrome(`◐ ${liveLabel} starting`);
+			onUpdate?.({
+				content: [{ type: "text", text: `(running ${liveLabel})` }],
+				details: makeDetails(hasChain ? "chain" : hasTasks ? "parallel" : "single")(
+					params.agent && params.task
+						? [
+								{
+									agent: params.agent,
+									agentSource: "user",
+									task: params.task,
+									exitCode: -1,
+									messages: [],
+									stderr: "",
+									usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: 0, contextTokens: 0, turns: 0 },
+								},
+							]
+						: [],
+				),
+			});
+			const beat = setInterval(() => {
+				paintChrome(`◐ ${liveLabel}  ${formatElapsed(liveStarted)}`);
+			}, 1000);
+
+			try {
 			if (modeCount !== 1) {
 				const available = agents.map((a) => `${a.name} (${a.source})`).join(", ") || "none";
 				return {
@@ -705,15 +782,30 @@ export default function (pi: ExtensionAPI) {
 				content: [{ type: "text", text: `Invalid parameters. Available agents: ${available}` }],
 				details: makeDetails("single")([]),
 			};
+			} finally {
+				clearInterval(beat);
+				clearChrome();
+			}
 		},
 
-		renderCall(args, theme, _context) {
+		renderCall(args, theme, context) {
 			const scope: AgentScope = args.agentScope ?? "user";
+			const state = context.state as { startedAt?: number; interval?: ReturnType<typeof setInterval> };
+			if (context.executionStarted && state.startedAt === undefined) {
+				state.startedAt = Date.now();
+			}
+			const live = context.isPartial && context.executionStarted;
+			if (live && !state.interval) {
+				state.interval = setInterval(() => context.invalidate(), 1000);
+			}
+			const elapsed = live ? formatElapsed(state.startedAt) : "";
+			const runningSuffix = live ? theme.fg("warning", `  ◐ ${elapsed || "starting"}`) : "";
 			if (args.chain && args.chain.length > 0) {
 				let text =
 					theme.fg("toolTitle", theme.bold("task ")) +
 					theme.fg("accent", `chain (${args.chain.length} steps)`) +
-					theme.fg("muted", ` [${scope}]`);
+					theme.fg("muted", ` [${scope}]`) +
+					runningSuffix;
 				for (let i = 0; i < Math.min(args.chain.length, 3); i++) {
 					const step = args.chain[i];
 					// Clean up {previous} placeholder for display
@@ -733,7 +825,8 @@ export default function (pi: ExtensionAPI) {
 				let text =
 					theme.fg("toolTitle", theme.bold("task ")) +
 					theme.fg("accent", `parallel (${args.tasks.length} tasks)`) +
-					theme.fg("muted", ` [${scope}]`);
+					theme.fg("muted", ` [${scope}]`) +
+					runningSuffix;
 				for (const t of args.tasks.slice(0, 3)) {
 					const preview = t.task.length > 40 ? `${t.task.slice(0, 40)}...` : t.task;
 					text += `\n  ${theme.fg("accent", t.agent)}${theme.fg("dim", ` ${preview}`)}`;
@@ -746,16 +839,44 @@ export default function (pi: ExtensionAPI) {
 			let text =
 				theme.fg("toolTitle", theme.bold("task ")) +
 				theme.fg("accent", agentName) +
-				theme.fg("muted", ` [${scope}]`);
+				theme.fg("muted", ` [${scope}]`) +
+				runningSuffix;
 			text += `\n  ${theme.fg("dim", preview)}`;
-			return new Text(text, 0, 0);
+			const node = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
+			node.setText(text);
+			return node;
 		},
 
-		renderResult(result, { expanded }, theme, _context) {
+		renderResult(result, { expanded, isPartial }, theme, context) {
 			const details = result.details as SubagentDetails | undefined;
+			const state = context.state as {
+				startedAt?: number;
+				endedAt?: number;
+				interval?: ReturnType<typeof setInterval>;
+			};
+			if (context.executionStarted && state.startedAt === undefined) {
+				state.startedAt = Date.now();
+			}
+			const running =
+				isPartial || Boolean(details?.results.some((r) => isRunningResult(r)));
+			if (running && !state.interval) {
+				state.interval = setInterval(() => context.invalidate(), 1000);
+			}
+			if (!running) {
+				state.endedAt ??= Date.now();
+				if (state.interval) {
+					clearInterval(state.interval);
+					state.interval = undefined;
+				}
+			}
+
 			if (!details || details.results.length === 0) {
-				const text = result.content[0];
-				return new Text(text?.type === "text" ? text.text : "(no output)", 0, 0);
+				const status = running
+					? theme.fg("warning", `◐ running${formatElapsed(state.startedAt) ? `  ${formatElapsed(state.startedAt)}` : ""}`)
+					: theme.fg("muted", result.content[0]?.type === "text" ? result.content[0].text : "(no output)");
+				const text = context.lastComponent instanceof Text ? context.lastComponent : new Text("", 0, 0);
+				text.setText(status);
+				return text;
 			}
 
 			const mdTheme = getMarkdownTheme();
@@ -779,13 +900,20 @@ export default function (pi: ExtensionAPI) {
 			if (details.mode === "single" && details.results.length === 1) {
 				const r = details.results[0];
 				const isError = isFailedResult(r);
-				const icon = isError ? theme.fg("error", "✗") : theme.fg("success", "✓");
+				const stillRunning = running || isRunningResult(r);
+				const elapsed = formatElapsed(state.startedAt, stillRunning ? undefined : state.endedAt);
+				const icon = stillRunning
+					? theme.fg("warning", "◐")
+					: isError
+						? theme.fg("error", "✗")
+						: theme.fg("success", "✓");
 				const displayItems = getDisplayItems(r.messages);
 				const finalOutput = getFinalOutput(r.messages);
 
 				if (expanded) {
 					const container = new Container();
 					let header = `${icon} ${theme.fg("toolTitle", theme.bold(r.agent))}${theme.fg("muted", ` (${r.agentSource})`)}`;
+					if (stillRunning) header += ` ${theme.fg("warning", `running${elapsed ? `  ${elapsed}` : ""}`)}`;
 					if (isError && r.stopReason) header += ` ${theme.fg("error", `[${r.stopReason}]`)}`;
 					container.addChild(new Text(header, 0, 0));
 					if (isError && r.errorMessage)
@@ -822,9 +950,11 @@ export default function (pi: ExtensionAPI) {
 				}
 
 				let text = `${icon} ${theme.fg("toolTitle", theme.bold(r.agent))}${theme.fg("muted", ` (${r.agentSource})`)}`;
+				if (stillRunning) text += ` ${theme.fg("warning", `running${elapsed ? `  ${elapsed}` : ""}`)}`;
 				if (isError && r.stopReason) text += ` ${theme.fg("error", `[${r.stopReason}]`)}`;
 				if (isError && r.errorMessage) text += `\n${theme.fg("error", `Error: ${r.errorMessage}`)}`;
-				else if (displayItems.length === 0) text += `\n${theme.fg("muted", "(no output)")}`;
+				else if (displayItems.length === 0)
+					text += `\n${theme.fg("muted", stillRunning ? "(starting worker...)" : "(no output)")}`;
 				else {
 					text += `\n${renderDisplayItems(displayItems, COLLAPSED_ITEM_COUNT)}`;
 					if (displayItems.length > COLLAPSED_ITEM_COUNT) text += `\n${theme.fg("muted", "(Ctrl+O to expand)")}`;

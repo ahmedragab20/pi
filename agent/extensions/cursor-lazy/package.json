@@ -2,13 +2,8 @@
   "name": "cursor-lazy",
   "version": "1.0.0",
   "private": true,
-  "description": "Loads the Cursor provider on demand instead of at pi startup",
+  "description": "Registers the Cursor provider at startup from the disk-cached catalog",
   "dependencies": {
     "pi-cursor-sdk": "0.2.0"
-  },
-  "devDependencies": {
-    "@earendil-works/pi-coding-agent": "0.84.1",
-    "@types/node": "^26.0.0",
-    "typescript": "^5.0.0"
   }
 }

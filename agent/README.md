@@ -18,8 +18,8 @@ You → pi (the lead, any model via /model or Ctrl+P)
   │           → each hands its result back to the lead
   │           → free worker down → retry once with *-paid twin
   ├─ Images (non-vision leads) → vision-router auto-runs vision
-  │           (gpt-5.6-luna) → vision-free (mimo) fallback → injects
-  │           [VISION DESCRIPTION]
+  │           (opencode-go/gpt-5.6-luna) → vision-free (mimo) fallback
+  │           → injects [VISION DESCRIPTION]
   └─ Human review → diffing is core: /plan (approve before coding),
                     /review (hand the diff to the human), /finish (apply
                     feedback), /diffing (router)
@@ -44,75 +44,64 @@ with one `vision-free` fallback.
 
 ```
 ~/.pi/agent/
-├── settings.json          — default model (cursor/grok-4.5), thinking high
-│                             level, compaction, retry, 19-model
-│                             enabledModels cycle set, nvim editor;
-│                             gpt-5.6-sol-1m is opt-in, not default
+├── settings.json          — default opencode-go/deepseek-v4-pro @ medium,
+│                             5-model Ctrl+P cycle, compact TUI, nvim editor
 ├── models.json            — model definitions (openai-codex/gpt-5.6-sol-1m:
 │                             1.05M context, long-context pricing above 272K)
-├── keybindings.json       — vim-style editing bindings
+├── keybindings.json       — vim-style editing; Ctrl+C interrupts, Esc is vim
 ├── AGENTS.md              — THE AI Engineering System (routing, chore rule,
 │                             task contract, TDD loop, diffing rules, no-attribution)
 ├── extensions/
+│   ├── 00-fff-defaults.ts — PI_FFF_MODE=override, FFF_ENABLE_HOME_SCAN=0
 │   ├── subagent/          — task tool: spawn workers (index.ts, agents.ts)
 │   ├── cursor-lazy/       — registers the Cursor provider at startup from the
 │   │                         disk-cached catalog (/cursor-load [--refresh],
 │   │                         /cursor-unload)
 │   ├── vision-router.ts   — auto vision delegation for pasted images
-│   └── sol-1m-alias.ts    — rewrites only openai-codex/gpt-5.6-sol-1m requests
-│                             → upstream gpt-5.6-sol
-├── agents/                — 21 worker definitions (markdown + frontmatter)
+│   ├── sol-1m-alias.ts    — rewrites only openai-codex/gpt-5.6-sol-1m requests
+│   │                         → upstream gpt-5.6-sol
+│   ├── context-efficiency.ts
+│   ├── 00-paste-chips.ts  — [Image #N] / [Paste #N] chips (no remount)
+│   └── pi-tool-repair.json — grammar recovery for kimi/glm/qwen/minimax
+├── zentui.json            — OpenCode editor + Starship footer (default)
+├── agents/                — 22 worker definitions (markdown + frontmatter)
 ├── prompts/               — /diffing /plan /review /finish /commit /implement /explore
-└── vision/                — decoded pasted images (for manual vision fallback)
+└── vision/                — decoded pasted images (pruned after 7 days)
 ```
 
 ## Model Inventory
 
-The approved scope is the 18 models in `enabledModels` (`agent/settings.json` is
-authoritative).
+`settings.json` is authoritative. **Ctrl+P cycles these five leads:**
 
 | Model | Provider | Role |
 | ------- | ---------- | ------ |
-| `openai-codex/gpt-5.6-sol` | openai-codex | Lead — low thinking, 272K window |
-| `openai-codex/gpt-5.6-sol-1m` | openai-codex | Lead — opt-in 1.05M-context alias (rewrites to upstream `gpt-5.6-sol`; long-context pricing above 272K input) |
-| `openai-codex/gpt-5.6-terra` | openai-codex | Lead — reasoning |
-| `openai-codex/gpt-5.6-luna` | openai-codex | Lead — fast, vision |
-| `cursor/grok-4.6` | Cursor | Lead — high thinking |
-| `cursor/composer-2.5` | Cursor | Lead — Composer |
-| `cursor/kimi-k3` | Cursor | Lead — coding |
-| `cursor/glm-5.2` | Cursor | Lead — coding |
+| `opencode-go/deepseek-v4-pro` | Go bundle | Default lead — thinking medium |
+| `cursor/grok-4.6` | Cursor | Lead |
+| `openai-codex/gpt-5.6-sol` | openai-codex | Lead — 272K window |
 | `cursor/claude-fable-5@300k` | Cursor | Lead — Claude, standard 300K |
-| `cursor/claude-fable-5@1m` | Cursor | Lead — Claude, opt-in 1M |
-| `cursor/claude-opus-5@300k` | Cursor | Lead — Claude, standard 300K |
-| `cursor/claude-opus-5@1m` | Cursor | Lead — Claude, opt-in 1M |
-| `opencode-go/deepseek-v4-flash` | Go bundle | Paid worker twin |
-| `opencode-go/deepseek-v4-pro` | Go bundle | Lead |
-| `opencode-go/glm-5.2` | Go bundle | Lead — coding |
 | `opencode-go/kimi-k3` | Go bundle | Lead — coding |
-| `opencode-go/minimax-m3` | Go bundle | Lead |
-| `opencode-go/qwen3.8-max` | Go bundle | Lead — coding |
 
-`enabledModels` covers leads + the paid worker twin only. Worker free twins
-(`opencode/deepseek-v4-flash-free`, `opencode/mimo-v2.5-free`) are
-auto-provisioned outside the scope and still used by `agents/*.md`.
+Everything else stays on `/model` (not the cycle): Sol 1M, Terra, Luna,
+Composer, GLM, Opus `@300k`/`@1m`, Fable `@1m`, MiniMax, Qwen, Flash (paid
+worker twin). Worker free twins (`opencode/deepseek-v4-flash-free`,
+`opencode/mimo-v2.5-free`) are auto-provisioned outside the cycle and still
+used by `agents/*.md`.
 
-Cycle leads with `Ctrl+P` (set via `enabledModels`). Default is
-`cursor/grok-4.5` at high thinking level. `openai-codex/gpt-5.6-sol` runs at
-low effort with the standard 272K window; `gpt-5.6-sol-1m` is opt-in for
-1.05M context. Same pattern on Cursor
-Fable/Opus: `@300k` is the standard entry, `@1m` is opt-in.
+`gpt-5.6-sol-1m` is opt-in 1.05M context (rewrites to upstream `gpt-5.6-sol`;
+long-context pricing above 272K input). Same pattern on Cursor Fable/Opus:
+`@300k` is the standard entry, `@1m` is opt-in.
 
 ## Agents (workers)
 
 | Agent | Model | Tools | Role |
-| ------- | ------- | ------- | ------ |
+| ------- | ------- | ------ | ------ |
 | `worker` | flash-free | full | Mechanical impl, CRUD, fixtures, refactors |
 | `tests` | flash-free | full | Write/run tests, report failing assertion |
 | `lint` | flash-free | full | Format, lint, imports, style |
 | `docs` | flash-free | full | READMEs, docs, comments |
 | `git` | flash-free | read, bash | Commit msgs, PR summaries (never commits) |
 | `memory` | flash-free | full | Repository memory |
-| `explorer` | flash-free | read, bash, grep, find, ls | Research/mapping (read-only, from Cursor) |
+| `explorer` | flash-free | read, bash, grep, find, ls | Research/mapping (read-only) |
 | `terminal-reader` | flash-free | none | Compress terminal output → packet |
 | `log-reader` | flash-free | none | Compress logs → packet |
 | `diff-reader` | flash-free | none | Compress diffs → packet |
@@ -120,7 +109,8 @@ Fable/Opus: `@300k` is the standard entry, `@1m` is opt-in.
 | `vision-free` | mimo-free | read, bash | Free vision fallback |
 | `*-paid` | deepseek-v4-flash | same | One retry when free tier is down |
 
-Workers are **depth 1** — they never spawn workers.
+Workers are **depth 1** — they never spawn workers. Every free worker,
+including `explorer`, has a `*-paid` twin.
 
 ## Diffing is core
 
@@ -143,11 +133,14 @@ mutate GitHub without explicit authorization. Skills from
 
 | Gesture | What |
 | --------- | ------ |
-| `Ctrl+P` | Cycle lead model |
-| `Shift+Tab` | Cycle thinking level |
+| `Ctrl+P` | Cycle lead model (5-entry list) |
+| `Shift+Tab` | Cycle thinking level (default medium) |
+| `Ctrl+C` | Interrupt / abort the agent |
+| `Ctrl+X` | Clear the editor (first) / exit (second) |
+| `Esc` | pi-vim: Insert → Normal (does not abort) |
 | `Ctrl+G` | Open external editor (nvim) |
 | `@file` | Reference a file in the prompt |
-| `!cmd` / `!!cmd` | Run shell, send output to model / hidden |
+| `!cmd` / `!!cmd` | Run shell, send output to the model / hidden |
 | `Alt+Enter` | Queue follow-up message |
 | `Ctrl+V` | Paste image → auto vision routing |
 | `alt+h/j/k/l` | Vim-style cursor movement in the editor |
@@ -167,14 +160,18 @@ mutate GitHub without explicit authorization. Skills from
 | Cursor `explorer.md` / `worker.md` agents | `agents/explorer.md` / `agents/worker.md` |
 | Cursor `no-co-authored-by.mdc` | `AGENTS.md` + `agents/git.md` |
 | Cursor `diffing-plan-review.mdc` / `diffing-session-url.mdc` | `AGENTS.md` + `/plan` `/review` |
-| Cursor CLI `vimMode` | `keybindings.json` + `externalEditor: nvim` |
-| Cursor model `grok-4.6 high` | `enabledModels` includes `cursor/grok-4.6` |
+| Cursor CLI `vimMode` | `keybindings.json` + `externalEditor: nvim` + `pi-vim` |
+| Cursor model `grok-4.6` | `enabledModels` includes `cursor/grok-4.6` |
 | herdr plugin (`herdr-agent-state.js`) | `herdr` skill (auto-loaded) |
 
 ## Notes
 
 - Extensions hot-reload with `/reload` after edits.
-- Cursor provider registers at startup from `pi-cursor-sdk`'s disk-cached catalog (`extensions/cursor-lazy/`): `/cursor-load` confirms the provider is loaded, `/cursor-load --refresh` fetches the live Cursor catalog (refreshed scoping applies on `/new` or restart), `/cursor-unload` unregisters it.
+- Cursor provider registers at startup from `pi-cursor-sdk`'s disk-cached catalog (`extensions/cursor-lazy/`): `/cursor-load` confirms the provider is loaded, `/cursor-load --refresh` fetches the live Cursor catalog (refreshed scoping applies on `/new` or restart), `/cursor-unload` unregisters it. Install runtime deps only (`npm install --omit=dev`).
 - Child worker processes are lean: `--no-extensions --no-skills --no-prompt-templates --no-context-files` (the brief is the whole context; prevents recursion).
 - `settings.json` is the single source of truth for model/thinking/compaction.
+- Lead search is FFF in `override` mode (`find`/`grep` are FFF, not fd/rg). Workers still use built-in `find`/`grep` because they spawn with `--no-extensions`.
+- Piolium is not a global package. Install it in the repo you are auditing.
+- pi-lens config lives at `~/.pi-lens/config.json` (widget/tests/opengrep off).
+- TUI: `pi-zentui` draws the OpenCode-style editor and the Starship footer (`/zentui` to tweak). Tool/user cards use rose-pine `surface`/`overlay`. Pasted images and long inserts become `[Image #N]` / `[Paste #N · …]` chips (`extensions/00-paste-chips.ts`).
 - Auth: `opencode-go` and `opencode` API keys are in `~/.pi/agent/auth.json` (via `/login`).

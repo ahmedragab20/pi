@@ -1,4 +1,6 @@
 {
+  "app.interrupt": ["escape"],
+  "app.clear": ["ctrl+c"],
   "tui.editor.cursorUp": ["up", "alt+k"],
   "tui.editor.cursorDown": ["down", "alt+j"],
   "tui.editor.cursorLeft": ["left", "alt+h", "ctrl+b"],
