@@ -27,6 +27,19 @@ Request → route → optional `/plan` approval → implement / delegate → tes
 
 Bug-fix TDD details: read the `harness-tdd` skill.
 
+## HTML mockups (big UI)
+
+When the user asks for a **large UI change** — new feature UI, redesign, new screens, new flows — **offer HTML mockups first** via `ask_user_question`. Only proceed if they accept. Skip the offer only if they already said no this turn.
+
+If they accept:
+
+1. **`task` `worker` immediately** with a **very detailed brief**: screens, states, copy, layout, colors, interactions, file path, and "self-contained HTML (inline CSS; no build) the user can open in a browser." Put every requirement in the brief — the worker must not guess.
+2. Worker **writes the mockup and checks it against that brief** (file exists, states/screens covered). Return: path + what was implemented vs requested.
+3. **Send the result to the user directly.** Do **not** lead-review, rewrite, or "validate" mockup HTML. The user will revise in the browser.
+4. On a revision request: identify the delta, then `task` `worker` again with a detailed brief for those changes. **Never write the mockup yourself** — always spawn the worker. Do not re-validate the HTML.
+
+Product implementation starts only after the user signs off on the mockup.
+
 ## Anti-bloat `task` contract (you enforce this)
 
 Every `task` call MUST be:

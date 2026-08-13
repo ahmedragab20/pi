@@ -7,7 +7,7 @@ description: Read working-tree, PR, or commit diffs with scoped inspect APIs. Us
 
 Stop at the first step that yields enough evidence. Never paste the whole tree into a worker because inspect felt slow.
 
-Cursor's `diffing` MCP may be bound to a **different repo**. Prefer the pi bridge (`pi__diffing_*`) or `diffing inspect` against this cwd's active session.
+Cursor's `diffing` MCP may be bound to a **different repo** (the product checkout). Prefer `diffing inspect` from this cwd, or pi bridge tools (`pi__diffing_*`). Do not use Cursor MCP `diff_files`/`diff_slice` unless `review_session_status` reports this consumer repo.
 
 Carry `generation` from `summary` into later calls. On stale generation (HTTP 409), re-run `summary` and restart that traversal.
 
@@ -23,7 +23,8 @@ diffing inspect search  <text> [--path GLOB]
 
 - Scope with `--path` (`agent/extensions/**`, `**/foo.ts`, exact file). Filtered `nextCursor` indexes the **filtered** list; each row still has the global `file` index.
 - `slice` / `hunks`: `--path` XOR `--file`. Path must resolve to exactly one file.
-- `summary` may include `directories` buckets. `--exclude lockfiles` drops lock/generated basenames from **counts only**.
+- `summary` may include `directories` buckets. `--exclude lockfiles` (MCP `exclude: ["lockfiles"]`) drops lock/generated basenames from **counts only**.
+- Same contract on MCP when the session is this repo: `diff_summary`, `diff_files`/`diff_hunks`/`diff_slice`/`diff_search` with `path`.
 
 ## Unhelpful inspect → fall through (do not retry with a full dump)
 
