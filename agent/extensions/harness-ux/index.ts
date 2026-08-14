@@ -16,6 +16,13 @@
  * overlay when it implements `handleWheel`, instead of only scrolling
  * layout scroll views behind the overlay. Re-apply after pi updates:
  *   https://pi.dev (see README → wheel patch note)
+ *
+ * alt+up / alt+down (jump between user messages) lives in the alt-screen
+ * (non-destructive viewport scroll, not a session re-root), which needs
+ * two small patches to the installed pi: tui-alt-screen.js `scrollToPrompt`
+ * plus alt+up/alt+down bindings, and assistant-message.js dropping its OSC
+ * 133 prompt markers so only user rows are jump targets. Re-apply after pi
+ * updates: README → user-message jump patch.
  */
 import * as path from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";

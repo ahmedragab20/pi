@@ -82,6 +82,54 @@ if (wheelOverlay && typeof wheelOverlay.component.handleWheel === "function") {
 }
 ```
 
+## User-message jump patch (re-apply after pi updates)
+
+`alt+up` / `alt+down` jump between user messages with a non-destructive
+viewport scroll (like the built-in marked-message jump, but user-only).
+Two small patches to the installed pi:
+
+1. `node_modules/@earendil-works/pi-coding-agent/dist/modes/interactive/components/assistant-message.js`
+   — remove the OSC 133 prompt markers from assistant rows, so marked rows
+   are user messages only. In `render(width)`, drop the marker lines:
+
+```js
+const OSC133_ZONE_START = "\x1b]133;A\x07";
+const OSC133_ZONE_END = "\x1b]133;B\x07";
+const OSC133_ZONE_FINAL = "\x1b]133;C\x07";
+// ...and in render(width), remove:
+//   lines[0] = OSC133_ZONE_START + lines[0];
+//   lines[lines.length - 1] = OSC133_ZONE_END + OSC133_ZONE_FINAL + lines[lines.length - 1];
+```
+
+   (Bonus: the built-in `ctrl+shift+up/down` fullscreen jump becomes
+   user-message-only too.)
+
+1. `node_modules/@earendil-works/pi-tui/dist/tui-alt-screen.js`
+   (`.../@earendil-works/pi-coding-agent/node_modules/...`) — make
+   `scrollToPrompt(direction)` return `false` when no marker row is found
+   (instead of bare `return`), then in `handleViewportInput` after
+   `const isRelease = isKeyRelease(data);` insert:
+
+```js
+// PI HARNESS PATCH: alt+up / alt+down jump between user messages.
+// User rows carry the OSC 133 prompt marker; assistant rows no
+// longer do (assistant-message.js patch), so scrollToPrompt only
+// lands on user messages. Non-destructive viewport scroll.
+if (!this.hasOverlay() && matchesKey(data, "alt+up")) {
+    if (!isRelease && !this.scrollToPrompt(-1))
+        this.flash("Already at the first user message");
+    return { consume: true };
+}
+if (!this.hasOverlay() && matchesKey(data, "alt+down")) {
+    if (!isRelease && !this.scrollToPrompt(1))
+        this.flash("Already at the latest user message");
+    return { consume: true };
+}
+```
+
+   `matchesKey` is already exported by `./keys.js`; add it to the existing
+   `import { isKeyRelease } from "./keys.js";`.
+
 ## Usage
 
 - pi reads config from `~/.pi/agent`; this repo is the source of truth.
