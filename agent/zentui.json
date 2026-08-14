@@ -2,10 +2,10 @@
   "projectRefreshIntervalMs": 30000,
   "components": {
     "editor": {
-      "enabled": false,
-      "style": "opencode",
-      "colorSource": "theme",
-      "borderColorMode": "static",
+      "enabled": true,
+      "style": "minimalist",
+      "colorSource": "terminal",
+      "borderColorMode": "adaptive",
       "modelLabel": "name",
       "viewportIndicators": true,
       "styles": {
@@ -32,8 +32,8 @@
     },
     "userMessages": {
       "enabled": true,
-      "style": "labeled",
-      "colorSource": "theme",
+      "style": "compact",
+      "colorSource": "terminal",
       "styles": {
         "framed": {},
         "framed-copy-friendly": {},
@@ -44,20 +44,20 @@
     "selectorBorders": {
       "enabled": true,
       "style": "zentui",
-      "colorSource": "theme"
+      "colorSource": "terminal"
     },
     "footer": {
       "style": "starship",
-      "colorSource": "theme",
-      "modelLabel": "id",
+      "colorSource": "terminal",
+      "modelLabel": "name",
       "styles": {
         "starship": {
           "format": "$cwd( on $git_branch)( $git_status)$fill($model)($sep$provider)($sep$thinking)($sep$context)($sep$tokens)($sep$cost)",
           "responsive": true,
           "compactFormat": "$cwd$wrap(on $git_branch) $git_status$wrap$context$wrap_sep$tokens$wrap_sep$model$wrap_sep$thinking",
           "compactMaxLines": 2,
-          "separator": "pipe",
-          "contextStyle": "text",
+          "separator": "dot",
+          "contextStyle": "text+gauge",
           "contextThresholds": {
             "warning": 70,
             "error": 90
@@ -71,17 +71,17 @@
             "sessionName": false,
             "gitBranch": true,
             "gitStatus": true,
-            "gitCounts": false,
-            "gitCommit": false,
-            "gitMetrics": false,
+            "gitCounts": true,
+            "gitCommit": true,
+            "gitMetrics": true,
             "runtime": false,
             "modelInfo": true,
             "context": true,
             "tokens": true,
             "cost": true,
-            "sessionDuration": false,
+            "sessionDuration": true,
             "username": false,
-            "time": false,
+            "time": true,
             "os": false,
             "packageVersion": false
           },
@@ -95,16 +95,56 @@
           },
           "gitMetrics": {
             "onlyNonzero": true,
-            "ignoreSubmodules": false
+            "ignoreSubmodules": true
           },
           "extensionStatuses": {
-            "defaultPlacement": "right",
-            "placements": {},
+            "defaultPlacement": "left",
+            "placements": {
+              "pi-lens-lsp": "off"
+            },
             "colorModes": {
-              "diffing": "zentui"
+              "diffing": "zentui",
+              "pi-lens-lsp": "zentui"
             }
           }
         }
+      }
+    },
+    "workingLine": {
+      "enabled": false,
+      "turnSummary": true,
+      "spinner": "star-bloom",
+      "spinnerIntervalMs": 100,
+      "animateSpinnerColor": false,
+      "textIntervalMs": 60,
+      "textAnimation": "classic",
+      "colorSource": "terminal",
+      "messages": {
+        "custom": false,
+        "values": [
+          "Sautéing…",
+          "Cooking…",
+          "Ionizing…",
+          "Zigzagging…",
+          "Razzle-dazzling…",
+          "Photosynthesizing…",
+          "Nucleating…",
+          "Brewing…",
+          "Combobulating…",
+          "Boogieing…",
+          "Befuddling…",
+          "Alchemizing…",
+          "Conjuring…",
+          "Baking…",
+          "Simmering…",
+          "Blanching…"
+        ]
+      },
+      "segments": {
+        "tool": true,
+        "elapsed": true,
+        "thought": true,
+        "tokens": true
       }
     }
   },

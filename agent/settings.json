@@ -1,9 +1,9 @@
 {
   "lastChangelogVersion": "0.84.1",
   "theme": "rose-pine",
-  "defaultProvider": "xai",
-  "defaultModel": "grok-4.6",
-  "defaultThinkingLevel": "low",
+  "defaultProvider": "opencode-go",
+  "defaultModel": "deepseek-v4-flash",
+  "defaultThinkingLevel": "high",
   "hideThinkingBlock": false,
   "externalEditor": "nvim",
   "quietStartup": true,

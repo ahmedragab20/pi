@@ -372,7 +372,10 @@ export class TaskCenterComponent {
 		bodyHeight: number,
 	): { top: number; height: number } | undefined {
 		if (maxScroll <= 0 || bodyHeight <= 0) return undefined;
-		const height = Math.max(1, Math.round((bodyHeight * bodyHeight) / (bodyHeight + maxScroll)));
+		const height = Math.max(
+			1,
+			Math.round((bodyHeight * bodyHeight) / (bodyHeight + maxScroll)),
+		);
 		const top =
 			maxScroll > 0
 				? Math.round((scroll / maxScroll) * (bodyHeight - height))
