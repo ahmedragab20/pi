@@ -10,6 +10,12 @@
  * Built purely on pi's extension API; observes the `task` tool's
  * tool_execution_* events and `pi.events` `task:*` job updates so
  * background workers stay visible after the parent tool returns.
+ *
+ * Wheel scrolling needs one small patch to the installed pi-tui
+ * (tui-alt-screen.js `routeWheel`): forward wheel events to the focused
+ * overlay when it implements `handleWheel`, instead of only scrolling
+ * layout scroll views behind the overlay. Re-apply after pi updates:
+ *   https://pi.dev (see README → wheel patch note)
  */
 import * as path from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
@@ -113,6 +119,10 @@ export default function harnessUx(pi: ExtensionAPI) {
 						invalidate: () => comp.invalidate(),
 						handleInput: (d: string) => {
 							comp.handleInput(d);
+							tui.requestRender();
+						},
+						handleWheel: (direction: number, x?: number, y?: number) => {
+							comp.handleWheel(direction, x, y);
 							tui.requestRender();
 						},
 						dispose: () => {

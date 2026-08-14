@@ -62,6 +62,26 @@ Piolium is not loaded globally. Install it in the target repo when you audit.
   you, `/finish` applies feedback.
 - Extensions hot-reload with `/reload`.
 
+## Wheel patch (re-apply after pi updates)
+
+The Task Center scrolls with the mouse/trackpad wheel via a tiny patch to
+the installed pi-tui: `routeWheel` must forward wheel events to the focused
+overlay when it implements `handleWheel`, instead of only scrolling layout
+scroll views behind it. In
+`node_modules/@earendil-works/pi-tui/dist/tui-alt-screen.js`
+(`.../@earendil-works/pi-coding-agent/node_modules/...`), at the top of
+`routeWheel(event)` insert:
+
+```js
+const wheelOverlay = this.overlayStack.find((entry) =>
+    entry.component === this.focusedComponent && this.isOverlayVisible(entry));
+if (wheelOverlay && typeof wheelOverlay.component.handleWheel === "function") {
+    wheelOverlay.component.handleWheel(event.direction, event.x, event.y);
+    this.requestRender();
+    return;
+}
+```
+
 ## Usage
 
 - pi reads config from `~/.pi/agent`; this repo is the source of truth.

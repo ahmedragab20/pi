@@ -45,6 +45,9 @@ export class TaskCenterComponent {
 	private detailScroll = 0;
 	private followEnd = true;
 	private lastViewport = 12;
+	/** Content overflowed the body on the last render (drives the scrollbar). */
+	private lastOverflow = false;
+	private lastMaxScroll = 0;
 
 	constructor(
 		private theme: any,
@@ -118,6 +121,12 @@ export class TaskCenterComponent {
 		if (matchesKey(data, "y")) {
 			void this.copySelected();
 		}
+	}
+
+	/** Mouse/trackpad wheel from pi-tui's alt-screen (patched to forward wheel to focused overlays). */
+	handleWheel(direction: number, _x?: number, _y?: number) {
+		if (direction === 0) return;
+		this.scrollDetail(direction * 3);
 	}
 
 	invalidate() {}
@@ -278,13 +287,23 @@ export class TaskCenterComponent {
 		const pos = idx >= 0 ? idx + 1 : 0;
 		const label = slot?.worker?.agent ?? slot?.task.label ?? "worker";
 		const tokens = this.tokenLabel(slot?.worker);
-		const left = `${theme.bold(label)} ${theme.fg("dim", `(${pos} of ${total})`)}${tokens ? theme.fg("muted", `  ${tokens}`) : ""}`;
+		const scroll = this.scrollLabel();
+		const left = `${theme.bold(label)} ${theme.fg("dim", `(${pos} of ${total})`)}${tokens ? theme.fg("muted", `  ${tokens}`) : ""}${scroll ? theme.fg("muted", `  ${scroll}`) : ""}`;
 		const many = total > 1;
 		const parent = keycap(theme, "Parent", "↑", true);
 		const prev = keycap(theme, "Prev", "←", many);
 		const next = keycap(theme, "Next", "→", many);
 		const right = `${parent}  ${prev}  ${next}`;
 		return fitEnds(` ${left}`, ` ${right} `, width);
+	}
+
+	private scrollLabel(): string {
+		if (!this.lastOverflow || this.lastMaxScroll <= 0) return "";
+		const pct = Math.min(
+			100,
+			Math.round((this.detailScroll / this.lastMaxScroll) * 100),
+		);
+		return `▮ ${pct}%`;
 	}
 
 	private tokenLabel(w: LiveWorker | undefined): string {
@@ -321,17 +340,44 @@ export class TaskCenterComponent {
 		if (this.followEnd) this.detailScroll = maxScroll;
 		this.detailScroll = Math.max(0, Math.min(this.detailScroll, maxScroll));
 		if (this.detailScroll >= maxScroll) this.followEnd = true;
+		this.lastOverflow = wrapped.length > bodyHeight;
+		this.lastMaxScroll = maxScroll;
 
 		const view = wrapped.slice(
 			this.detailScroll,
 			this.detailScroll + bodyHeight,
 		);
+		const thumb = this.scrollThumb(this.detailScroll, maxScroll, bodyHeight);
 		const lines: string[] = [];
 		for (let i = 0; i < bodyHeight; i++) {
 			const text = view[i];
-			lines.push(text === undefined ? fit("", width) : fit(` ${text}`, width));
+			let line =
+				text === undefined ? fit("", width - 1) : fit(` ${text}`, width - 1);
+			if (thumb) {
+				line +=
+					i >= thumb.top && i < thumb.top + thumb.height
+						? theme.fg("accent", "▐")
+						: theme.fg("borderMuted", "╎");
+			} else {
+				line += " ";
+			}
+			lines.push(line);
 		}
 		return lines;
+	}
+
+	private scrollThumb(
+		scroll: number,
+		maxScroll: number,
+		bodyHeight: number,
+	): { top: number; height: number } | undefined {
+		if (maxScroll <= 0 || bodyHeight <= 0) return undefined;
+		const height = Math.max(1, Math.round((bodyHeight * bodyHeight) / (bodyHeight + maxScroll)));
+		const top =
+			maxScroll > 0
+				? Math.round((scroll / maxScroll) * (bodyHeight - height))
+				: 0;
+		return { top, height };
 	}
 
 	private emptyBody(): string[] {
@@ -344,7 +390,7 @@ export class TaskCenterComponent {
 			"",
 			theme.fg(
 				"dim",
-				"↑ / Esc  parent    ← →  siblings    t  thought    y  copy",
+				"↑ / Esc  parent    ← →  siblings    j / ↓  scroll    t  thought    y  copy",
 			),
 		];
 	}
