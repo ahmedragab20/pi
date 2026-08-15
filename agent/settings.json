@@ -1,8 +1,8 @@
 {
-  "lastChangelogVersion": "0.84.1",
+  "lastChangelogVersion": "0.84.2",
   "theme": "rose-pine",
   "defaultProvider": "opencode-go",
-  "defaultModel": "deepseek-v4-flash",
+  "defaultModel": "deepseek-v4-pro",
   "defaultThinkingLevel": "high",
   "hideThinkingBlock": false,
   "externalEditor": "nvim",

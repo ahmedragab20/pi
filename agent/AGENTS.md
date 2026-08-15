@@ -33,12 +33,16 @@ When the user asks for a **large UI change** — new feature UI, redesign, new s
 
 If they accept:
 
-1. **`task` `worker` immediately** with a **very detailed brief**: screens, states, copy, layout, colors, interactions, file path, and "self-contained HTML (inline CSS; no build) the user can open in a browser." Put every requirement in the brief — the worker must not guess.
-2. Worker **writes the mockup and checks it against that brief** (file exists, states/screens covered). Return: path + what was implemented vs requested.
-3. **Send the result to the user directly.** Do **not** lead-review, rewrite, or "validate" mockup HTML. The user will revise in the browser.
-4. On a revision request: identify the delta, then `task` `worker` again with a detailed brief for those changes. **Never write the mockup yourself** — always spawn the worker. Do not re-validate the HTML.
+1. **`task` `worker` immediately** with a **very detailed brief**: screens, states, copy, layout, colors, interactions, and "self-contained HTML (inline CSS; no build)." Put every requirement in the brief — the worker must not guess. Have the worker return the HTML inline (or a staged path under `~/.diffing/<repo>/mockup-sources/`), **never** a file inside the consumer git tree.
+2. Worker **writes the mockup and checks it against that brief** (screens/states covered). Return: the HTML (or staged path) + what was implemented vs requested.
+3. **Route it through diffing mockup review** — load the `diffing-mockup-review` skill and run its loop with the pi tools: `diffing_mockup_submit` (html/screens inline, or the staged path) → share the mockup URL → **park** (run `diffing_mockup_await` only when the human is reviewing right now). Do **not** lead-review, rewrite, or "validate" the HTML yourself — the diffing verdict is the gate.
+4. **Obey the verdict** before any product code:
+   - `approved` → implement.
+   - `changes-requested` → `diffing_mockup_inspect` the open comments, revise **one screen at a time** with `diffing_mockup_screen` (patch), then `diffing_mockup_threads` reply + resolve, and resubmit with the same mockupId. Do **not** implement.
+   - `rejected` → stop and rethink.
+5. On a revision request: identify the delta, then `task` `worker` again with a detailed brief for those changes. **Never write the mockup yourself** — always spawn the worker.
 
-Product implementation starts only after the user signs off on the mockup.
+Product implementation starts only after the diffing mockup verdict is `approved`.
 
 ## Anti-bloat `task` contract (you enforce this)
 
