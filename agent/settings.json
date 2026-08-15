@@ -1,9 +1,9 @@
 {
   "lastChangelogVersion": "0.84.2",
   "theme": "rose-pine",
-  "defaultProvider": "opencode-go",
-  "defaultModel": "deepseek-v4-flash",
-  "defaultThinkingLevel": "high",
+  "defaultProvider": "opencode",
+  "defaultModel": "nemotron-3.5-lightning-free",
+  "defaultThinkingLevel": "medium",
   "hideThinkingBlock": false,
   "externalEditor": "nvim",
   "quietStartup": true,

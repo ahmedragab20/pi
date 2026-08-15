@@ -27,3 +27,6 @@
 
 # Dev-time module resolution for extension checks (symlink to npm/node_modules)
 /agent/extensions/node_modules
+
+# Herder generated file
+agent/extensions/herdr-agent-state.ts
