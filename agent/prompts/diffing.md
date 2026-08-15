@@ -8,7 +8,7 @@ Route by intent:
 - no args / `start` / `review` → `diffing-start-review`: launch or reopen the diffing UI for the current repo and hand it to the human.
 - `comments` / `handoff` / `finish` → `diffing-finish-review`: wait for the human's "Send to agent", then apply requested edits, answer questions, and resolve threads.
 - `plan <path>` → `diffing-plan-review`: submit the plan at <path> for human approval and obey the verdict before touching code.
-- `mockup` / `mockup <html|file|id>` → `diffing-mockup-review`: submit an HTML mockup for visual review (never write mockup files into the consumer git tree), park, then obey the verdict — inspect open comments, patch one screen, and reply/resolve threads before resubmitting. Prefer the `diffing_mockup_*` tools when the pi extension is loaded.
+- `mockup` / `mockup <html|file|id>` → `diffing-mockup-author` then `diffing-mockup-review`: read `diffing_design` first, submit HTML for visual review (never write mockup files into the consumer git tree), park, then obey the verdict — inspect open comments, `replace-region` / patch one screen, reply/resolve threads, `diffing_mockup_handoff` after approved. Prefer the `diffing_mockup_*` / `diffing_design` tools when the pi extension is loaded.
 - `pr <number|url>` → read with `diffing-pr-read`; if the user asks to address feedback, use `diffing-pr-address` (do not push or mutate GitHub without explicit authorization).
 - `status` → call `review_session_status` (MCP) or `diffing url` to report whether a review server is running and what repo it serves.
 

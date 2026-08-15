@@ -33,14 +33,15 @@ When the user asks for a **large UI change** — new feature UI, redesign, new s
 
 If they accept:
 
-1. **`task` `worker` immediately** with a **very detailed brief**: screens, states, copy, layout, colors, interactions, and "self-contained HTML (inline CSS; no build)." Put every requirement in the brief — the worker must not guess. Have the worker return the HTML inline (or a staged path under `~/.diffing/<repo>/mockup-sources/`), **never** a file inside the consumer git tree.
-2. Worker **writes the mockup and checks it against that brief** (screens/states covered). Return: the HTML (or staged path) + what was implemented vs requested.
-3. **Route it through diffing mockup review** — load the `diffing-mockup-review` skill and run its loop with the pi tools: `diffing_mockup_submit` (html/screens inline, or the staged path) → share the mockup URL → **park** (run `diffing_mockup_await` only when the human is reviewing right now). Do **not** lead-review, rewrite, or "validate" the HTML yourself — the diffing verdict is the gate.
-4. **Obey the verdict** before any product code:
-   - `approved` → implement.
-   - `changes-requested` → `diffing_mockup_inspect` the open comments, revise **one screen at a time** with `diffing_mockup_screen` (patch), then `diffing_mockup_threads` reply + resolve, and resubmit with the same mockupId. Do **not** implement.
+1. Load `diffing-mockup-author`. Call `diffing_design` `show` (extract a draft if none exists — do **not** publish unless the human asked). Put those tokens in the worker brief. Do not invent Inter + indigo + Tailwind CDN.
+2. **`task` `worker` immediately** with a **very detailed brief**: every distinct state as its own screen id, copy, layout, colors from the design system, `data-diffing` region names, and "self-contained HTML (inline CSS; no build; no tabs/accordions/modals/toggles/JS that swaps content)." Put every requirement in the brief — the worker must not guess. Have the worker return the HTML inline (or a staged path under `~/.diffing/<repo>-<hash>/mockup-sources/`), **never** a file inside the consumer git tree.
+3. Worker **writes the mockup and checks it against that brief** (screens/states covered). Return: the HTML (or staged path) + what was implemented vs requested.
+4. **Route it through diffing mockup review** — load `diffing-mockup-review` and use the pi tools: `diffing_mockup_submit` (html/screens inline, optional `mode` / `designSystem` / `planId`) → share `/mockup/<id>` → **park** (`diffing_mockup_await` only when the human is reviewing right now). Fix submit hints (in-page state / generic style) before parking. Do **not** lead-review, rewrite, or "validate" the HTML yourself — the diffing verdict is the gate.
+5. **Obey the verdict** before any product code:
+   - `approved` → `diffing_mockup_handoff`, then implement.
+   - `changes-requested` → `diffing_mockup_inspect` open comments, revise **one screen at a time** with `diffing_mockup_screen` (`replace-region` when the comment has a `data-diffing` target; else `patch`), then `diffing_mockup_threads` reply + resolve, resubmit the same mockupId. Do **not** implement.
    - `rejected` → stop and rethink.
-5. On a revision request: identify the delta, then `task` `worker` again with a detailed brief for those changes. **Never write the mockup yourself** — always spawn the worker.
+6. On a revision request: identify the delta, then `task` `worker` again with a detailed brief for those changes. **Never write the mockup yourself** — always spawn the worker.
 
 Product implementation starts only after the diffing mockup verdict is `approved`.
 
@@ -72,7 +73,7 @@ Chores (tests/fixtures/lint/docs/git/memory/compression/mechanical CRUD) → `ta
 
 ## Diffing
 
-Follow the `diffing-*` skills. Always print the review/plan URL before `await_review` / `await_plan_review`. Plans live under `~/.diffing/`, never in the consumer tree. Never mutate GitHub without explicit user authorization.
+Follow the `diffing-*` skills. Always print the review/plan/mockup URL before `await_review` / `await_plan_review` / `diffing_mockup_await`. Plans and mockup sources live under `~/.diffing/`, never in the consumer tree. Prefer the `diffing_*` extension tools (including `diffing_design`, `diffing_mockup_inspect` / `_screen` / `_threads` / `_handoff`) over raw CLI. Never mutate GitHub without explicit user authorization.
 
 **Read diffs scoped.** Prefer inspect (`summary` → `--path` files/search/slice). Full skill: `harness-diff-read`. `diff-reader` is fallback for a path-scoped dump only.
 

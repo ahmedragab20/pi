@@ -163,14 +163,15 @@ Human-in-the-loop review is the default workflow, not an add-on:
 | `/plan <what>` | Draft a plan → submit to diffing → **await human approval before coding** |
 | `/review` | Start/reopen the diffing review UI for working-tree changes, hand to human |
 | `/finish` | Process the human's review handoff — apply edits, answer, resolve threads |
-| `/diffing <route>` | Router: start / finish / plan / pr / status |
+| `/diffing <route>` | Router: start / finish / plan / mockup / pr / status |
 | `/implement <query>` | explore → plan → diffing approval → implement → verify → review |
 
-Rules enforced in `AGENTS.md`: always print the review/plan URL before
-awaiting; plans live under `~/.diffing/` never in the consumer tree; never
-mutate GitHub without explicit authorization. Skills from
-`~/.agents/skills/diffing*/` are auto-loaded. Read diffs with inspect
-(`harness-diff-read`); do not dump the whole patch into `diff-reader`.
+Rules enforced in `AGENTS.md`: always print the review/plan/mockup URL before
+awaiting; plans and mockup sources live under `~/.diffing/` never in the
+consumer tree; never mutate GitHub without explicit authorization. Skills from
+`~/.agents/skills/diffing*/` are auto-loaded (including `diffing-mockup-author`).
+Read diffs with inspect (`harness-diff-read`); do not dump the whole patch into
+`diff-reader`.
 
 ## Day-to-day
 
