@@ -173,6 +173,21 @@ consumer tree; never mutate GitHub without explicit authorization. Skills from
 Read diffs with inspect (`harness-diff-read`); do not dump the whole patch into
 `diff-reader`.
 
+## Herdr coordination
+
+Inside herdr (`HERDR_ENV=1`), pi and diffing expose two machine-readable markers
+so panes coordinate without reading each other's scrollback:
+
+- `DIFFING_READY <url> mode=web|gh-pr pid=<pid>` — diffing server stderr, once
+  listening. Wait exactly: `herdr wait output <pane> --match "DIFFING_READY"`.
+- `DIFFING_VERDICT <plan|mockup|review> decision=<…>` — surfaced in the pi pane
+  (notify + widget) after each await verdict. Grep via `herdr pane read`.
+
+Recipes (server in a sibling pane, tests during a parked review, parallel
+agents + `wait agent-status`, reading the server pane) live in the `diffing`
+skill's "herdr coordination" section. Never edit the herdr team's own skill
+(`~/.agents/skills/herdr/`) — keep diffing-specific recipes in the diffing skill.
+
 ## Day-to-day
 
 | Gesture | What |

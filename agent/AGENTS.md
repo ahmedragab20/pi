@@ -77,6 +77,10 @@ Follow the `diffing-*` skills. Always print the review/plan/mockup URL before `a
 
 **Read diffs scoped.** Prefer inspect (`summary` → `--path` files/search/slice). Full skill: `harness-diff-read`. `diff-reader` is fallback for a path-scoped dump only.
 
+## Herdr + diffing
+
+When running inside herdr (`HERDR_ENV=1`), the diffing server prints `DIFFING_READY <url> mode=… pid=…` to stderr once listening — wait on it with `herdr wait output <pane> --match "DIFFING_READY"` (exact match, not the human banner). After each `await_review` / `await_plan_review` / `await_mockup_review` verdict, the pi extension surfaces `DIFFING_VERDICT <kind> decision=…` in the pi pane (notify + widget), greppable via `herdr pane read`. Coordination recipes (server in a sibling pane, tests during a parked review, parallel agents, reading the server pane) live in the diffing skill's "herdr coordination" section — never edit herdr's own skill (`~/.agents/skills/herdr/`).
+
 ## Commits
 
 Conventional Commits only: `<type>(<optional-scope>): <description>`. No `Co-authored-by:` trailers and no agent/bot attribution.
