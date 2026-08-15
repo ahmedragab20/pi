@@ -1,7 +1,7 @@
 /**
  * Background job registry, packets, and git worktrees for the task tool.
  */
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
@@ -74,19 +74,55 @@ export function isRetryableFailure(blob: string): boolean {
 	return RETRYABLE.test(blob);
 }
 
-export function addWorktree(jobId: string, repo: string): string | undefined {
+function runAsync(
+	cmd: string,
+	args: string[],
+	cwd: string,
+): Promise<{ code: number; stderr: string }> {
+	return new Promise((resolve) => {
+		const proc = spawn(cmd, args, {
+			cwd,
+			shell: false,
+			stdio: ["ignore", "ignore", "pipe"],
+		});
+		let stderr = "";
+		proc.stderr.on("data", (d) => {
+			if (stderr.length < 4096) stderr += d.toString();
+		});
+		proc.on("close", (code) => resolve({ code: code ?? 1, stderr }));
+		proc.on("error", (err) =>
+			resolve({
+				code: 1,
+				stderr: err instanceof Error ? err.message : String(err),
+			}),
+		);
+	});
+}
+
+export interface WorktreeAddResult {
+	dir?: string;
+	error?: string;
+}
+
+export async function addWorktree(
+	jobId: string,
+	repo: string,
+): Promise<WorktreeAddResult> {
 	const dir = worktreePathFor(jobId);
 	fs.mkdirSync(path.dirname(dir), { recursive: true });
-	const r = spawnSync("git", ["worktree", "add", "--detach", dir, "HEAD"], {
-		cwd: repo,
-		encoding: "utf8",
-	});
-	if (r.status !== 0) return undefined;
-	return dir;
+	const { code, stderr } = await runAsync(
+		"git",
+		["worktree", "add", "--detach", dir, "HEAD"],
+		repo,
+	);
+	if (code !== 0) return { error: stderr.trim() || "worktree add failed" };
+	return { dir };
 }
 
 export function worktreeDiffStat(worktree: string): string {
-	const r = spawnSync("git", ["diff", "--stat"], {
+	// `git diff HEAD` covers both staged and unstaged changes vs the
+	// detached-HEAD base; plain `git diff` would miss anything staged.
+	const r = spawnSync("git", ["diff", "HEAD", "--stat"], {
 		cwd: worktree,
 		encoding: "utf8",
 	});
@@ -101,16 +137,36 @@ export function worktreeIsClean(worktree: string): boolean {
 	return r.status === 0 && r.stdout.trim() === "";
 }
 
-export function removeWorktreeIfClean(worktree: string, repo: string): boolean {
-	if (!worktreeIsClean(worktree)) return false;
-	spawnSync("git", ["worktree", "remove", "--force", worktree], {
+// True when the worktree's HEAD differs from the main repo's HEAD, i.e. the
+// worker committed on its detached HEAD. Such commits have no ref and would be
+// orphaned if the worktree were removed, so they must be left in place.
+export function worktreeHeadMoved(worktree: string, repo: string): boolean {
+	const wt = spawnSync("git", ["rev-parse", "HEAD"], {
+		cwd: worktree,
+		encoding: "utf8",
+	});
+	const rp = spawnSync("git", ["rev-parse", "HEAD"], {
 		cwd: repo,
 		encoding: "utf8",
 	});
-	return true;
+	if (wt.status !== 0 || rp.status !== 0) return false;
+	return wt.stdout.trim() !== rp.stdout.trim();
 }
 
-function pruneDir(dir: string, onOld: (full: string, st: fs.Stats) => void): void {
+export function removeWorktreeIfClean(worktree: string, repo: string): boolean {
+	if (!worktreeIsClean(worktree)) return false;
+	if (worktreeHeadMoved(worktree, repo)) return false;
+	const r = spawnSync("git", ["worktree", "remove", "--force", worktree], {
+		cwd: repo,
+		encoding: "utf8",
+	});
+	return r.status === 0;
+}
+
+function pruneDir(
+	dir: string,
+	onOld: (full: string, st: fs.Stats) => void,
+): void {
 	let names: string[];
 	try {
 		names = fs.readdirSync(dir);
@@ -144,18 +200,21 @@ export function pruneTmp(repo?: string): void {
 
 export function capStub(text: string): string {
 	const lines = text.split("\n").slice(0, STUB_MAX_LINES).join("\n");
-	if (Buffer.byteLength(lines, "utf8") <= STUB_MAX_BYTES) return lines;
-	let out = lines;
-	while (Buffer.byteLength(out, "utf8") > STUB_MAX_BYTES) {
-		out = out.slice(0, -1);
-	}
-	return out;
+	const buf = Buffer.from(lines, "utf8");
+	if (buf.length <= STUB_MAX_BYTES) return lines;
+	// Back off so we don't split a multi-byte UTF-8 sequence in half.
+	let end = STUB_MAX_BYTES;
+	while (end > 0 && (buf[end] & 0xc0) === 0x80) end--;
+	return buf.subarray(0, end).toString("utf8");
 }
 
-export function writePacket(jobId: string, body: string): string {
+export async function writePacket(
+	jobId: string,
+	body: string,
+): Promise<string> {
 	const file = packetPathFor(jobId);
 	fs.mkdirSync(path.dirname(file), { recursive: true });
-	fs.writeFileSync(file, body, "utf8");
+	await fs.promises.writeFile(file, body, "utf8");
 	return file;
 }
 
@@ -249,11 +308,16 @@ export class JobRegistry {
 		for (const job of this.running()) this.cancel(job.jobId);
 	}
 
+	// Safety net for jobs whose pid died but whose close handler never ran
+	// (e.g. PID reuse, signal edge cases). The normal path in
+	// executePreparedJob writes the packet and delivers the result; this only
+	// catches the rare case where that chain never resolves.
 	reapDead(): void {
 		for (const job of this.running()) {
 			if (job.pid && !pidAlive(job.pid)) {
 				job.status = "failed";
 				job.endedAt = Date.now();
+				job.stub = "(process died unexpectedly)";
 				this.emit(job);
 			}
 		}

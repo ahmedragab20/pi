@@ -1,9 +1,9 @@
 /**
  * Chip pasted images and large text, OpenCode-style, without remounting the editor.
  *
- * Hooks ctx.ui.setEditorComponent on session_start *before* pi-vim / zentui
+ * Hooks ctx.ui.setEditorComponent on session_start *before* pi-vim
  * install, so chips attach in-place. A delayed setEditorComponent was causing
- * the default editor (then zentui) to flash for a frame.
+ * the default editor to flash for a frame.
  *
  * Image chips are session-scoped: persist to ~/.pi/agent/vision at paste time
  * and do NOT reset the registry on submit (that made `[Image #2]` a dead chip).

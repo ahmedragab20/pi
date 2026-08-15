@@ -23,3 +23,6 @@
 
 # Symlink to local dev checkout (leaks absolute path)
 /agent/extensions/diffing
+
+# Dev-time module resolution for extension checks (symlink to npm/node_modules)
+/agent/extensions/node_modules

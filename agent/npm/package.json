@@ -2,11 +2,9 @@
   "name": "pi-extensions",
   "private": true,
   "dependencies": {
-    "@ff-labs/pi-fff": "^0.10.3",
+    "@earendil-works/pi-tui": "^0.84.2",
     "@juicesharp/rpiv-ask-user-question": "^2.5.2",
-    "pi-lens": "^4.0.0",
     "pi-tool-repair": "^0.2.0",
-    "pi-vim": "^0.14.1",
-    "pi-zentui": "^0.20.1"
+    "pi-vim": "^0.14.1"
   }
 }

@@ -32,7 +32,6 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import type { Component } from "@earendil-works/pi-tui";
 import { Text, VStack } from "@earendil-works/pi-tui";
-import { taskRegistry } from "./harness-ux/tasks.ts";
 import {
 	IMAGE_CHIP,
 	PASTED_MARKER,
@@ -378,48 +377,6 @@ function visionCard(theme: ThemeFg, id: number, expanded: boolean): Component {
 	return new VStack(children);
 }
 
-function finishRegistry(job: VisionJob): void {
-	try {
-		taskRegistry.finish(
-			`vision-${job.id}`,
-			{
-				details: {
-					results: [
-						{
-							agent: "vision",
-							agentSource: "user",
-							task: `Describe ${job.files.map((f) => path.basename(f.filePath)).join(", ")}`,
-							exitCode: job.status === "done" ? 0 : 1,
-							messages: job.result?.text
-								? [
-										{
-											role: "assistant",
-											content: [{ type: "text", text: job.result.text }],
-										},
-									]
-								: [],
-							stderr: job.error ?? "",
-							model: job.result?.model,
-							usage: {
-								input: 0,
-								output: 0,
-								cacheRead: 0,
-								cacheWrite: 0,
-								cost: 0,
-								contextTokens: 0,
-								turns: 0,
-							},
-						},
-					],
-				},
-			},
-			job.status !== "done",
-		);
-	} catch {
-		/* Task Center is optional */
-	}
-}
-
 function startJob(
 	cwd: string,
 	files: SavedPaste[],
@@ -431,7 +388,6 @@ function startJob(
 			prev.status = "error";
 			prev.error = "superseded";
 			prev.consumed = true;
-			finishRegistry(prev);
 		}
 	}
 	const id = ++jobSeq;
@@ -467,18 +423,6 @@ function startJob(
 		},
 	);
 	jobs.set(id, job);
-	try {
-		taskRegistry.start(`vision-${id}`, {
-			agent: "vision",
-			task: `Describe ${files.map((f) => path.basename(f.filePath)).join(", ")}`,
-		});
-	} catch {
-		/* Task Center is optional */
-	}
-	job.promise = job.promise.then((result) => {
-		finishRegistry(job);
-		return result;
-	});
 	if (jobs.size > 20) {
 		const ids = [...jobs.keys()].sort((a, b) => a - b);
 		for (const extra of ids.slice(0, ids.length - 20)) {
@@ -527,7 +471,6 @@ export default function (pi: ExtensionAPI) {
 				abortJob(job);
 				job.status = job.status === "done" ? job.status : "error";
 				job.consumed = true;
-				finishRegistry(job);
 			}
 		}
 		jobs.clear();

@@ -92,12 +92,7 @@ export function sniffMime(buf: Buffer): string | undefined {
 	) {
 		return "image/png";
 	}
-	if (
-		buf.length >= 3 &&
-		buf[0] === 0xff &&
-		buf[1] === 0xd8 &&
-		buf[2] === 0xff
-	) {
+	if (buf.length >= 3 && buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff) {
 		return "image/jpeg";
 	}
 	if (buf.length >= 6) {
@@ -248,7 +243,7 @@ export default function pasteImagesLib() {
 	// Shared module discovered as `extensions/*.ts`; not a real extension.
 }
 
-export function pruneOldPastes(maxAgeMs = 7 * 24 * 60 * 60 * 1000): void {
+export function pruneOldPastes(maxAgeMs = 3 * 24 * 60 * 60 * 1000): void {
 	try {
 		if (!fs.existsSync(VISION_DIR)) return;
 		const now = Date.now();

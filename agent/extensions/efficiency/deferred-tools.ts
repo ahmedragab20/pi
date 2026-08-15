@@ -1,5 +1,5 @@
 /**
- * Core coding tools stay on. pi-lens and other extras start off; tool_search activates them.
+ * Core coding tools stay on. Package extras start off; tool_search activates them.
  */
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
@@ -30,14 +30,17 @@ export function registerDeferredTools(pi: ExtensionAPI): void {
 			"Search for additional tools when the active tools cannot perform the task (LSP, ast-grep, project reports).",
 		parameters: Type.Object({
 			query: Type.String({
-				description: "Capability to search for, e.g. lsp, ast-grep, symbol, diagnostics",
+				description:
+					"Capability to search for, e.g. lsp, ast-grep, symbol, diagnostics",
 			}),
 		}),
 		async execute(_id, params) {
 			const q = params.query.trim().toLowerCase();
 			if (!q) {
 				return {
-					content: [{ type: "text", text: "Pass a query such as lsp, ast-grep, or symbol." }],
+					content: [
+						{ type: "text", text: "Pass a query such as lsp, ast-grep, or symbol." },
+					],
 					details: { matches: [], added: [] },
 				};
 			}
@@ -91,10 +94,7 @@ export function registerDeferredTools(pi: ExtensionAPI): void {
 				.filter((n) => !active.has(n));
 			const activeList = [...active].sort().join(", ") || "(none)";
 			const deferredList = deferred.sort().join(", ") || "(none)";
-			ctx.ui.notify(
-				`active: ${activeList}\ndeferred: ${deferredList}`,
-				"info",
-			);
+			ctx.ui.notify(`active: ${activeList}\ndeferred: ${deferredList}`, "info");
 		},
 	});
 }

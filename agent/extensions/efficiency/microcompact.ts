@@ -18,13 +18,21 @@ import { contentText, formatSize, lastLines, writeDump } from "./dumps.ts";
 let enabled = true;
 let lastFolded = 0;
 
+/** Skip folding entirely until context is at least this full — the scan +
+ * dump writes cost more than the token savings in small sessions. */
+const MICROCOMPACT_PERCENT = 50;
+
 function isToolResult(m: AgentMessage): m is ToolResultMessage {
 	return m.role === "toolResult";
 }
 
 function isBashExecution(
 	m: AgentMessage,
-): m is AgentMessage & { role: "bashExecution"; output: string; command: string } {
+): m is AgentMessage & {
+	role: "bashExecution";
+	output: string;
+	command: string;
+} {
 	return m.role === "bashExecution";
 }
 
@@ -69,9 +77,18 @@ function alreadyFolded(text: string): boolean {
 }
 
 export function registerMicrocompact(pi: ExtensionAPI): void {
-	pi.on("context", (event) => {
+	pi.on("context", (event, ctx) => {
 		if (!enabled) {
 			lastFolded = 0;
+			return;
+		}
+
+		const usage = ctx?.getContextUsage?.();
+		if (
+			usage &&
+			typeof usage.percent === "number" &&
+			usage.percent < MICROCOMPACT_PERCENT
+		) {
 			return;
 		}
 
@@ -95,7 +112,10 @@ export function registerMicrocompact(pi: ExtensionAPI): void {
 			if (isBashExecution(m)) {
 				if (index >= keepStart) return m;
 				const text = m.output ?? "";
-				if (alreadyFolded(text) || Buffer.byteLength(text, "utf8") < SMALL_RESULT_BYTES) {
+				if (
+					alreadyFolded(text) ||
+					Buffer.byteLength(text, "utf8") < SMALL_RESULT_BYTES
+				) {
 					return m;
 				}
 				folded++;
@@ -117,10 +137,7 @@ export function registerMicrocompact(pi: ExtensionAPI): void {
 			const superseded = dropIds.has(m.toolCallId);
 			const old = index < keepStart;
 			if (!old && !superseded) return m;
-			if (
-				!superseded &&
-				Buffer.byteLength(text, "utf8") < SMALL_RESULT_BYTES
-			) {
+			if (!superseded && Buffer.byteLength(text, "utf8") < SMALL_RESULT_BYTES) {
 				return m;
 			}
 

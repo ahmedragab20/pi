@@ -24,7 +24,6 @@ diffing-first workflow — stored as a dotfiles-style git repo at `~/.pi`.
 │   │   ├── paste-images.ts   — decode pasted images to agent/vision/
 │   │   ├── subagent/         — task: background jobs, packets, worktrees,
 │   │   │                       spawn-layer paid retry (index, agents, jobs)
-│   │   ├── harness-ux/       — /tasks Task Center, /palette, live footer
 │   │   ├── efficiency/       — compress, fold, Flash compact, deferred
 │   │   │                       tools, memory inject, git checkpoints,
 │   │   │                       thinking-router
@@ -33,8 +32,7 @@ diffing-first workflow — stored as a dotfiles-style git repo at `~/.pi`.
 │   │   ├── vision-router.ts  — auto vision for pasted images
 │   │   ├── sol-1m-alias.ts   — gpt-5.6-sol-1m → upstream gpt-5.6-sol
 │   │   └── pi-tool-repair.json
-│   ├── npm/                  — pi packages (fff, lens, vim, zentui, …)
-│   ├── zentui.json           — OpenCode editor + Starship footer
+│   ├── npm/                  — pi packages (fff, vim, …)
 │   ├── prompts/              — /diffing /plan /review /finish /commit
 │   │                           /explore /implement
 │   ├── themes/               — rose-pine (high-contrast TUI syntax)
@@ -61,26 +59,6 @@ Piolium is not loaded globally. Install it in the target repo when you audit.
 - Diffing review loop: `/plan` before coding, `/review` hands the diff to
   you, `/finish` applies feedback.
 - Extensions hot-reload with `/reload`.
-
-## Wheel patch (re-apply after pi updates)
-
-The Task Center scrolls with the mouse/trackpad wheel via a tiny patch to
-the installed pi-tui: `routeWheel` must forward wheel events to the focused
-overlay when it implements `handleWheel`, instead of only scrolling layout
-scroll views behind it. In
-`node_modules/@earendil-works/pi-tui/dist/tui-alt-screen.js`
-(`.../@earendil-works/pi-coding-agent/node_modules/...`), at the top of
-`routeWheel(event)` insert:
-
-```js
-const wheelOverlay = this.overlayStack.find((entry) =>
-    entry.component === this.focusedComponent && this.isOverlayVisible(entry));
-if (wheelOverlay && typeof wheelOverlay.component.handleWheel === "function") {
-    wheelOverlay.component.handleWheel(event.direction, event.x, event.y);
-    this.requestRender();
-    return;
-}
-```
 
 ## User-message jump patch (re-apply after pi updates)
 

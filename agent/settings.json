@@ -45,18 +45,8 @@
   },
   "packages": [
     "npm:pi-tool-repair",
-    "npm:pi-lens",
-    "npm:@ff-labs/pi-fff",
     "npm:@juicesharp/rpiv-ask-user-question",
-    "npm:pi-vim",
-    "npm:pi-zentui"
-  ],
-  "defaultTools": [
-    "read",
-    "bash",
-    "edit",
-    "write",
-    "ls"
+    "npm:pi-vim"
   ],
   "showHardwareCursor": false,
   "editorPaddingX": 1,

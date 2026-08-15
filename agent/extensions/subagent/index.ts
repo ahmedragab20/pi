@@ -49,6 +49,7 @@ import {
 	removeWorktreeIfClean,
 	type TaskJob,
 	worktreeDiffStat,
+	worktreeHeadMoved,
 	worktreeIsClean,
 	writePacket,
 } from "./jobs.ts";
@@ -56,6 +57,7 @@ import {
 const MAX_PARALLEL_TASKS = 8;
 const MAX_CONCURRENCY = 4;
 const COLLAPSED_ITEM_COUNT = 10;
+const MAX_STDERR_BYTES = 64 * 1024;
 
 function formatTokens(count: number): string {
 	if (count < 1000) return count.toString();
@@ -104,8 +106,7 @@ function formatToolCall(
 	switch (toolName) {
 		case "bash": {
 			const command = (args.command as string) || "...";
-			const preview =
-				command.length > 60 ? `${command.slice(0, 60)}...` : command;
+			const preview = command.length > 60 ? `${command.slice(0, 60)}...` : command;
 			return themeFg("muted", "$ ") + themeFg("toolOutput", preview);
 		}
 		case "read": {
@@ -117,10 +118,7 @@ function formatToolCall(
 			if (offset !== undefined || limit !== undefined) {
 				const startLine = offset ?? 1;
 				const endLine = limit !== undefined ? startLine + limit - 1 : "";
-				text += themeFg(
-					"warning",
-					`:${startLine}${endLine ? `-${endLine}` : ""}`,
-				);
+				text += themeFg("warning", `:${startLine}${endLine ? `-${endLine}` : ""}`);
 			}
 			return themeFg("muted", "read ") + text;
 		}
@@ -135,9 +133,7 @@ function formatToolCall(
 		}
 		case "edit": {
 			const rawPath = (args.file_path || args.path || "...") as string;
-			return (
-				themeFg("muted", "edit ") + themeFg("accent", shortenPath(rawPath))
-			);
+			return themeFg("muted", "edit ") + themeFg("accent", shortenPath(rawPath));
 		}
 		case "ls": {
 			const rawPath = (args.path || ".") as string;
@@ -163,8 +159,7 @@ function formatToolCall(
 		}
 		default: {
 			const argsStr = JSON.stringify(args);
-			const preview =
-				argsStr.length > 50 ? `${argsStr.slice(0, 50)}...` : argsStr;
+			const preview = argsStr.length > 50 ? `${argsStr.slice(0, 50)}...` : argsStr;
 			return themeFg("accent", toolName) + themeFg("dim", ` ${preview}`);
 		}
 	}
@@ -521,8 +516,7 @@ async function runSingleAgent(
 							currentResult.usage.cost += usage.cost?.total || 0;
 							currentResult.usage.contextTokens = usage.totalTokens || 0;
 						}
-						if (!currentResult.model && msg.model)
-							currentResult.model = msg.model;
+						if (!currentResult.model && msg.model) currentResult.model = msg.model;
 						if (msg.stopReason) currentResult.stopReason = msg.stopReason;
 						if (msg.errorMessage) currentResult.errorMessage = msg.errorMessage;
 					}
@@ -543,15 +537,24 @@ async function runSingleAgent(
 			});
 
 			proc.stderr.on("data", (data) => {
+				if (currentResult.stderr.length >= MAX_STDERR_BYTES) return;
 				currentResult.stderr += data.toString();
+				if (currentResult.stderr.length > MAX_STDERR_BYTES) {
+					currentResult.stderr =
+						currentResult.stderr.slice(0, MAX_STDERR_BYTES) + "\n…(stderr truncated)";
+				}
 			});
 
-			proc.on("close", (code) => {
+			proc.on("close", (code, sig) => {
 				if (buffer.trim()) processLine(buffer);
-				resolve(code ?? 0);
+				// A signal-terminated child reports code === null; that is a
+				// failure, not a success.
+				resolve(code ?? (sig ? 1 : 0));
 			});
 
-			proc.on("error", () => {
+			proc.on("error", (err) => {
+				currentResult.stderr +=
+					err instanceof Error ? `${err.message}\n` : `${String(err)}\n`;
 				resolve(1);
 			});
 
@@ -560,7 +563,10 @@ async function runSingleAgent(
 					wasAborted = true;
 					proc.kill("SIGTERM");
 					setTimeout(() => {
-						if (!proc.killed) proc.kill("SIGKILL");
+						// proc.killed is set true by kill() even when the signal
+						// was ignored; check process liveness instead.
+						if (proc.exitCode === null && proc.signalCode === null)
+							proc.kill("SIGKILL");
 					}, 5000);
 				};
 				if (signal.aborted) killProc();
@@ -686,42 +692,33 @@ type AgentJobSpec = {
 
 type PreparedJob = {
 	job: TaskJob;
-	worktree?: string;
-	worktreeWarn?: string;
 };
 
-function prepareJob(spec: AgentJobSpec): PreparedJob {
+function prepareJob(
+	args: Pick<AgentJobSpec, "agentName" | "task" | "repo" | "publish">,
+): PreparedJob {
 	const jobId = crypto.randomUUID();
-	let worktree: string | undefined;
-	let worktreeWarn: string | undefined;
-	if (spec.useWorktree) {
-		const dir = addWorktree(jobId, spec.repo);
-		if (dir) worktree = dir;
-		else worktreeWarn = "worktree add failed; running in session cwd";
-	}
 	const job = jobRegistry.start({
 		jobId,
-		agent: spec.agentName,
-		task: spec.task,
+		agent: args.agentName,
+		task: args.task,
 		packetPath: packetPathFor(jobId),
-		worktree,
 		status: "running",
 		startedAt: Date.now(),
 	});
-	spec.publish("start", job);
-	return { job, worktree, worktreeWarn };
+	args.publish("start", job);
+	return { job };
 }
 
 function pendingFromJob(
 	agents: AgentConfig[],
-	spec: AgentJobSpec,
+	agentName: string,
+	task: string,
 	prepared: PreparedJob,
 ): SingleResult {
-	const pending = pendingResult(agents, spec.agentName, spec.task);
+	const pending = pendingResult(agents, agentName, task);
 	pending.jobId = prepared.job.jobId;
 	pending.packetPath = prepared.job.packetPath;
-	pending.worktree = prepared.worktree;
-	pending.worktreeWarn = prepared.worktreeWarn;
 	return pending;
 }
 
@@ -729,9 +726,24 @@ async function executePreparedJob(
 	spec: AgentJobSpec,
 	prepared: PreparedJob,
 ): Promise<SingleResult> {
-	const { job, worktree, worktreeWarn } = prepared;
+	const { job } = prepared;
 	const jobId = job.jobId;
 	const agent = spec.agents.find((a) => a.name === spec.agentName);
+
+	let worktree: string | undefined;
+	let worktreeWarn: string | undefined;
+	if (spec.useWorktree) {
+		const res = await addWorktree(jobId, spec.repo);
+		if (res.dir) {
+			worktree = res.dir;
+			const updated = jobRegistry.patch(jobId, { worktree });
+			if (updated) spec.publish("update", updated);
+		} else {
+			worktreeWarn = `${
+				res.error ?? "worktree add failed"
+			}; running in session cwd`;
+		}
+	}
 
 	const runOpts = (modelOverride?: string): RunOpts => ({
 		modelOverride,
@@ -833,9 +845,14 @@ async function executePreparedJob(
 	let diffstat = "";
 	if (worktree) {
 		diffstat = worktreeDiffStat(worktree);
-		if (worktreeIsClean(worktree)) {
-			removeWorktreeIfClean(worktree, spec.repo);
-			result.worktree = undefined;
+		if (worktreeHeadMoved(worktree, spec.repo)) {
+			result.stub = capStub(
+				`${result.stub}\n\nWorktree has a commit on detached HEAD (not removed): ${worktree}${diffstat ? `\n${diffstat}` : ""}`,
+			);
+		} else if (worktreeIsClean(worktree)) {
+			if (removeWorktreeIfClean(worktree, spec.repo)) {
+				result.worktree = undefined;
+			}
 		} else {
 			result.stub = capStub(
 				`${result.stub}\n\nWorktree left dirty: ${worktree}${diffstat ? `\n${diffstat}` : ""}`,
@@ -843,7 +860,7 @@ async function executePreparedJob(
 		}
 	}
 
-	writePacket(jobId, packetBody(job, result, diffstat));
+	await writePacket(jobId, packetBody(job, result, diffstat));
 
 	const status = cancelled
 		? "cancelled"
@@ -998,17 +1015,11 @@ export default function (pi: ExtensionAPI) {
 			paintChrome(`◐ ${liveLabel} starting`);
 			onUpdate?.({
 				content: [{ type: "text", text: `(running ${liveLabel})` }],
-				details: makeDetails(
-					hasChain ? "chain" : hasTasks ? "parallel" : "single",
-				)(
+				details: makeDetails(hasChain ? "chain" : hasTasks ? "parallel" : "single")(
 					params.agent && params.task
 						? [pendingResult(agents, params.agent, params.task)]
-						: (params.tasks?.map((t) =>
-								pendingResult(agents, t.agent, t.task),
-							) ??
-								params.chain?.map((c) =>
-									pendingResult(agents, c.agent, c.task),
-								) ??
+						: (params.tasks?.map((t) => pendingResult(agents, t.agent, t.task)) ??
+								params.chain?.map((c) => pendingResult(agents, c.agent, c.task)) ??
 								[]),
 				),
 			});
@@ -1051,8 +1062,7 @@ export default function (pi: ExtensionAPI) {
 				) {
 					const requestedAgentNames = new Set<string>();
 					if (params.chain)
-						for (const step of params.chain)
-							requestedAgentNames.add(step.agent);
+						for (const step of params.chain) requestedAgentNames.add(step.agent);
 					if (params.tasks)
 						for (const t of params.tasks) requestedAgentNames.add(t.agent);
 					if (params.agent) requestedAgentNames.add(params.agent);
@@ -1230,23 +1240,18 @@ export default function (pi: ExtensionAPI) {
 
 					for (let i = 0; i < params.tasks.length; i++) {
 						const t = params.tasks[i];
-						const spec = specFor(
-							t.agent,
-							t.task,
-							t.cwd,
-							undefined,
-							undefined,
-							"parallel",
-						);
-						prepared[i] = prepareJob(spec);
-						allResults[i] = pendingFromJob(agents, spec, prepared[i]);
+						prepared[i] = prepareJob({
+							agentName: t.agent,
+							task: t.task,
+							repo: ctx.cwd,
+							publish,
+						});
+						allResults[i] = pendingFromJob(agents, t.agent, t.task, prepared[i]);
 					}
 
 					const emitParallelUpdate = () => {
 						if (onUpdate) {
-							const running = allResults.filter(
-								(r) => r.exitCode === -1,
-							).length;
+							const running = allResults.filter((r) => r.exitCode === -1).length;
 							const done = allResults.filter((r) => r.exitCode !== -1).length;
 							onUpdate({
 								content: [
@@ -1354,7 +1359,12 @@ export default function (pi: ExtensionAPI) {
 					);
 					const prepared = prepareJob(spec);
 					if (background) {
-						const pending = pendingFromJob(agents, spec, prepared);
+						const pending = pendingFromJob(
+							agents,
+							params.agent,
+							params.task,
+							prepared,
+						);
 						void executePreparedJob(spec, prepared).then(deliver);
 						return {
 							content: [
@@ -1417,6 +1427,9 @@ export default function (pi: ExtensionAPI) {
 			const live = context.isPartial && context.executionStarted;
 			if (live && !state.interval) {
 				state.interval = setInterval(() => context.invalidate(), 1000);
+			} else if (!live && state.interval) {
+				clearInterval(state.interval);
+				state.interval = undefined;
 			}
 			const elapsed = live ? formatElapsed(state.startedAt) : "";
 			const runningSuffix = live
@@ -1452,8 +1465,7 @@ export default function (pi: ExtensionAPI) {
 					theme.fg("muted", ` [${scope}]`) +
 					runningSuffix;
 				for (const t of args.tasks.slice(0, 3)) {
-					const preview =
-						t.task.length > 40 ? `${t.task.slice(0, 40)}...` : t.task;
+					const preview = t.task.length > 40 ? `${t.task.slice(0, 40)}...` : t.task;
 					text += `\n  ${theme.fg("accent", t.agent)}${theme.fg("dim", ` ${preview}`)}`;
 				}
 				if (args.tasks.length > 3)
@@ -1527,8 +1539,7 @@ export default function (pi: ExtensionAPI) {
 
 			const renderDisplayItems = (items: DisplayItem[], limit?: number) => {
 				const toShow = limit ? items.slice(-limit) : items;
-				const skipped =
-					limit && items.length > limit ? items.length - limit : 0;
+				const skipped = limit && items.length > limit ? items.length - limit : 0;
 				let text = "";
 				if (skipped > 0)
 					text += theme.fg("muted", `... ${skipped} earlier items\n`);
@@ -1577,24 +1588,16 @@ export default function (pi: ExtensionAPI) {
 					container.addChild(new Text(theme.fg("muted", "─── Task ───"), 0, 0));
 					container.addChild(new Text(theme.fg("dim", r.task), 0, 0));
 					container.addChild(new Spacer(1));
-					container.addChild(
-						new Text(theme.fg("muted", "─── Output ───"), 0, 0),
-					);
+					container.addChild(new Text(theme.fg("muted", "─── Output ───"), 0, 0));
 					if (displayItems.length === 0 && !finalOutput) {
-						container.addChild(
-							new Text(theme.fg("muted", "(no output)"), 0, 0),
-						);
+						container.addChild(new Text(theme.fg("muted", "(no output)"), 0, 0));
 					} else {
 						for (const item of displayItems) {
 							if (item.type === "toolCall")
 								container.addChild(
 									new Text(
 										theme.fg("muted", "→ ") +
-											formatToolCall(
-												item.name,
-												item.args,
-												theme.fg.bind(theme),
-											),
+											formatToolCall(item.name, item.args, theme.fg.bind(theme)),
 										0,
 										0,
 									),
@@ -1602,9 +1605,7 @@ export default function (pi: ExtensionAPI) {
 						}
 						if (finalOutput) {
 							container.addChild(new Spacer(1));
-							container.addChild(
-								new Markdown(finalOutput.trim(), 0, 0, mdTheme),
-							);
+							container.addChild(new Markdown(finalOutput.trim(), 0, 0, mdTheme));
 						}
 					}
 					const usageStr = formatUsageStats(r.usage, r.model);
@@ -1655,9 +1656,7 @@ export default function (pi: ExtensionAPI) {
 			};
 
 			if (details.mode === "chain") {
-				const successCount = details.results.filter(
-					(r) => r.exitCode === 0,
-				).length;
+				const successCount = details.results.filter((r) => r.exitCode === 0).length;
 				const icon =
 					successCount === details.results.length
 						? theme.fg("success", "✓")
@@ -1670,10 +1669,7 @@ export default function (pi: ExtensionAPI) {
 							icon +
 								" " +
 								theme.fg("toolTitle", theme.bold("chain ")) +
-								theme.fg(
-									"accent",
-									`${successCount}/${details.results.length} steps`,
-								),
+								theme.fg("accent", `${successCount}/${details.results.length} steps`),
 							0,
 							0,
 						),
@@ -1681,9 +1677,7 @@ export default function (pi: ExtensionAPI) {
 
 					for (const r of details.results) {
 						const rIcon =
-							r.exitCode === 0
-								? theme.fg("success", "✓")
-								: theme.fg("error", "✗");
+							r.exitCode === 0 ? theme.fg("success", "✓") : theme.fg("error", "✗");
 						const displayItems = getDisplayItems(r.messages);
 						const finalOutput = getFinalOutput(r.messages);
 
@@ -1696,11 +1690,7 @@ export default function (pi: ExtensionAPI) {
 							),
 						);
 						container.addChild(
-							new Text(
-								theme.fg("muted", "Task: ") + theme.fg("dim", r.task),
-								0,
-								0,
-							),
+							new Text(theme.fg("muted", "Task: ") + theme.fg("dim", r.task), 0, 0),
 						);
 
 						// Show tool calls
@@ -1709,11 +1699,7 @@ export default function (pi: ExtensionAPI) {
 								container.addChild(
 									new Text(
 										theme.fg("muted", "→ ") +
-											formatToolCall(
-												item.name,
-												item.args,
-												theme.fg.bind(theme),
-											),
+											formatToolCall(item.name, item.args, theme.fg.bind(theme)),
 										0,
 										0,
 									),
@@ -1724,9 +1710,7 @@ export default function (pi: ExtensionAPI) {
 						// Show final output as markdown
 						if (finalOutput) {
 							container.addChild(new Spacer(1));
-							container.addChild(
-								new Markdown(finalOutput.trim(), 0, 0, mdTheme),
-							);
+							container.addChild(new Markdown(finalOutput.trim(), 0, 0, mdTheme));
 						}
 
 						const stepUsage = formatUsageStats(r.usage, r.model);
@@ -1737,9 +1721,7 @@ export default function (pi: ExtensionAPI) {
 					const usageStr = formatUsageStats(aggregateUsage(details.results));
 					if (usageStr) {
 						container.addChild(new Spacer(1));
-						container.addChild(
-							new Text(theme.fg("dim", `Total: ${usageStr}`), 0, 0),
-						);
+						container.addChild(new Text(theme.fg("dim", `Total: ${usageStr}`), 0, 0));
 					}
 					return container;
 				}
@@ -1752,9 +1734,7 @@ export default function (pi: ExtensionAPI) {
 					theme.fg("accent", `${successCount}/${details.results.length} steps`);
 				for (const r of details.results) {
 					const rIcon =
-						r.exitCode === 0
-							? theme.fg("success", "✓")
-							: theme.fg("error", "✗");
+						r.exitCode === 0 ? theme.fg("success", "✓") : theme.fg("error", "✗");
 					const displayItems = getDisplayItems(r.messages);
 					text += `\n\n${theme.fg("muted", `─── Step ${r.step}: `)}${theme.fg("accent", r.agent)} ${rIcon}`;
 					if (displayItems.length === 0)
@@ -1811,11 +1791,7 @@ export default function (pi: ExtensionAPI) {
 							),
 						);
 						container.addChild(
-							new Text(
-								theme.fg("muted", "Task: ") + theme.fg("dim", r.task),
-								0,
-								0,
-							),
+							new Text(theme.fg("muted", "Task: ") + theme.fg("dim", r.task), 0, 0),
 						);
 
 						// Show tool calls
@@ -1824,11 +1800,7 @@ export default function (pi: ExtensionAPI) {
 								container.addChild(
 									new Text(
 										theme.fg("muted", "→ ") +
-											formatToolCall(
-												item.name,
-												item.args,
-												theme.fg.bind(theme),
-											),
+											formatToolCall(item.name, item.args, theme.fg.bind(theme)),
 										0,
 										0,
 									),
@@ -1839,9 +1811,7 @@ export default function (pi: ExtensionAPI) {
 						// Show final output as markdown
 						if (finalOutput) {
 							container.addChild(new Spacer(1));
-							container.addChild(
-								new Markdown(finalOutput.trim(), 0, 0, mdTheme),
-							);
+							container.addChild(new Markdown(finalOutput.trim(), 0, 0, mdTheme));
 						}
 
 						const taskUsage = formatUsageStats(r.usage, r.model);
@@ -1852,9 +1822,7 @@ export default function (pi: ExtensionAPI) {
 					const usageStr = formatUsageStats(aggregateUsage(details.results));
 					if (usageStr) {
 						container.addChild(new Spacer(1));
-						container.addChild(
-							new Text(theme.fg("dim", `Total: ${usageStr}`), 0, 0),
-						);
+						container.addChild(new Text(theme.fg("dim", `Total: ${usageStr}`), 0, 0));
 					}
 					return container;
 				}

@@ -62,7 +62,6 @@ with one `vision-free` fallback.
 │   ├── 00-paste-chips.ts  — [Image #N] / [Paste #N] chips (no remount)
 │   ├── paste-images.ts    — decode pasted images to vision/
 │   ├── subagent/          — task: jobs, packets, worktrees, paid retry
-│   ├── harness-ux/        — /tasks, /palette, live "◐ N tasks" footer
 │   ├── efficiency/        — compress, fold, Flash compact, deferred tools,
 │   │                         memory, git checkpoints, thinking-router
 │   ├── context-efficiency.ts — early compact on windows < 500k
@@ -70,8 +69,7 @@ with one `vision-free` fallback.
 │   ├── vision-router.ts   — auto vision for pasted images
 │   ├── sol-1m-alias.ts    — openai-codex/gpt-5.6-sol-1m → gpt-5.6-sol
 │   └── pi-tool-repair.json — grammar recovery for kimi/glm/qwen/minimax
-├── npm/                   — pi packages (fff, lens, vim, zentui, …)
-├── zentui.json            — OpenCode editor + Starship footer (default)
+├── npm/                   — pi packages (fff, vim, …)
 ├── themes/rose-pine.json  — card chrome + high-contrast TUI syntax
 ├── agents/                — 11 visible workers + hidden paid/vision-free twins
 ├── prompts/               — /diffing /plan /review /finish /commit /implement /explore
@@ -144,7 +142,7 @@ Background jobs: `background: true` on `task` (not with chain). `/task-await [id
 | Command | What |
 | --------- | ------ |
 | `/microcompact [on\|off\|status]` | Fold old tool dumps in outgoing context |
-| `/tools` / `/tools reset` | Deferred extras (pi-lens) vs core set |
+| `/tools` / `/tools reset` | Deferred package extras vs core set |
 | `/memory` / `/memory refresh` | Show / how to refresh MEMORY.md |
 | `/thinking-router [on\|off\|status]` | Auto thinking from the prompt |
 | `/context-efficiency` | Small-window early compact status |
@@ -190,8 +188,7 @@ mutate GitHub without explicit authorization. Skills from
 | `Ctrl+V` | Paste image → auto vision routing |
 | `alt+h/j/k/l` | Vim-style cursor movement in the editor |
 | `/tree` `/fork` `/compact` | Session tools |
-| `/tasks` `/task-await` `/task-cancel` | Task Center / wait / cancel background jobs |
-| `/palette` | Fuzzy command palette (sessions, actions, models) |
+| `/task-await` `/task-cancel` | Wait / cancel background jobs |
 | `/microcompact` `/tools` `/memory` `/thinking-router` | Token controls |
 | `pi -c` | Continue most recent session |
 | `pi -r` | Browse and resume a session |
@@ -220,7 +217,6 @@ mutate GitHub without explicit authorization. Skills from
 - `settings.json` is the single source of truth for model/thinking/compaction.
 - Lead search is FFF in `override` mode (`find`/`grep` are FFF, not fd/rg). Workers still use built-in `find`/`grep` because they spawn with `--no-extensions`.
 - Piolium is not a global package. Install it in the repo you are auditing.
-- pi-lens config lives at `~/.pi-lens/config.json` (widget/tests/opengrep off).
-- TUI: `pi-zentui` draws the OpenCode-style editor and the Starship footer (`/zentui` to tweak). Tool/user cards use rose-pine `surface`/`overlay`. Code blocks use the high-contrast rose-pine syntax map (iris keywords, rose functions, foam types/vars, gold strings/numbers). Pasted images and long inserts become `[Image #N]` / `[Paste #N · …]` chips (`extensions/00-paste-chips.ts`).
-- Deferred tools: core coding tools stay on; pi-lens LSP/ast-grep and package extras start off (`tool_search` / `/tools`).
+- TUI: tool/user cards use rose-pine `surface`/`overlay`. Code blocks use the high-contrast rose-pine syntax map (iris keywords, rose functions, foam types/vars, gold strings/numbers). Pasted images and long inserts become `[Image #N]` / `[Paste #N · …]` chips (`extensions/00-paste-chips.ts`).
+- Deferred tools: core coding tools stay on; package extras start off (`tool_search` / `/tools`).
 - Auth: `opencode-go` and `opencode` API keys are in `~/.pi/agent/auth.json` (via `/login`). Cursor auth is the Cursor provider.
