@@ -12,6 +12,7 @@
 
 # Session transcripts & pasted images
 /agent/sessions/
+/agent/sessions-archive/
 /agent/vision/
 
 # Efficiency extension runtime (tool dumps + global memory files)

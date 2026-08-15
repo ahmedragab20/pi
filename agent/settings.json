@@ -2,12 +2,12 @@
   "lastChangelogVersion": "0.84.2",
   "theme": "rose-pine",
   "defaultProvider": "opencode-go",
-  "defaultModel": "deepseek-v4-pro",
+  "defaultModel": "deepseek-v4-flash",
   "defaultThinkingLevel": "high",
   "hideThinkingBlock": false,
   "externalEditor": "nvim",
   "quietStartup": true,
-  "defaultProjectTrust": "ask",
+  "defaultProjectTrust": "always",
   "collapseChangelog": true,
   "compaction": {
     "enabled": true,
@@ -50,7 +50,7 @@
   ],
   "showHardwareCursor": false,
   "editorPaddingX": 1,
-  "outputPad": 0,
+  "outputPad": 1,
   "enableInstallTelemetry": false,
   "treeFilterMode": "no-tools",
   "tuiMode": "fullscreen",
@@ -60,10 +60,12 @@
   "autocompleteMaxVisible": 6,
   "markdown": {
     "codeBlockIndent": "",
-    "mermaid": "final"
+    "mermaid": "streaming"
   },
   "terminal": {
-    "imageWidthCells": 40
+    "imageWidthCells": 40,
+    "showTerminalProgress": false,
+    "showImages": false
   },
   "piVim": {
     "modeColors": {

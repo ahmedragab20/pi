@@ -4,7 +4,7 @@
   "dependencies": {
     "@earendil-works/pi-tui": "^0.84.2",
     "@juicesharp/rpiv-ask-user-question": "^2.5.2",
-    "pi-tool-repair": "^0.2.0",
+    "pi-tool-repair": "^0.2.1",
     "pi-vim": "^0.14.1"
   }
 }
