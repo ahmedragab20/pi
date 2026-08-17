@@ -1,9 +1,9 @@
 {
   "lastChangelogVersion": "0.84.2",
   "theme": "rose-pine",
-  "defaultProvider": "opencode",
-  "defaultModel": "nemotron-3.5-lightning-free",
-  "defaultThinkingLevel": "medium",
+  "defaultProvider": "opencode-go",
+  "defaultModel": "glm-5.3",
+  "defaultThinkingLevel": "high",
   "hideThinkingBlock": false,
   "externalEditor": "nvim",
   "quietStartup": true,
@@ -38,7 +38,8 @@
     "cursor/composer-2.5",
     "openai-codex/gpt-5.6-sol-1m",
     "cursor/claude-opus-5@300k",
-    "cursor/kimi-k3"
+    "cursor/kimi-k3",
+    "opencode-go/glm-5.3"
   ],
   "warnings": {
     "anthropicExtraUsage": true
