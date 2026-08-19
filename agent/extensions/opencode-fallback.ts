@@ -40,9 +40,13 @@ export default function opencodeFallbackLib() {
 	// Shared module discovered as `extensions/*.ts`; not a real extension.
 }
 
-/** Map an error string to the OpenCode bill that ran out. */
+/** Map an error string to the bill that ran out. */
 export function markExhaustedFromError(text: string): void {
 	if (!isUsageLimitError(text)) return;
+	if (/cline/i.test(text)) {
+		markProviderExhausted("clinepass");
+		return;
+	}
 	if (/FreeUsageLimitError/i.test(text) || /\bopencode\/(?!go)/i.test(text)) {
 		markProviderExhausted("opencode");
 		return;

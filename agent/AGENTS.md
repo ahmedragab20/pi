@@ -14,14 +14,14 @@ Persistent rules for every pi session on this machine. Obey exactly. This is the
 ## Roles
 
 - **Lead (you)** — the main pi session. Whatever model you selected (`/model` or Ctrl+P). Owns design, architecture, debugging, the TDD loop, fixes, scoped implementation, review judgment, synthesis. The model is *your choice* — routing is model-agnostic.
-- **Workers** — spawned via the `Agent` tool (`@tintinweb/pi-subagents`). Each runs in an isolated session with its own context window, role prompt (`~/.pi/agent/agents/*.md`), model, and tool allowlist. **Depth 1 only: workers never spawn workers.** Model is `opencode-go/deepseek-v4-flash`, falling back to `clinepass/cline-pass/deepseek-v4-flash` when OpenCode is unauthed or out of usage (`GoUsageLimitError`). The lead model is never switched. Do not pass `model` unless debugging.
-- **Vision** — `vision` worker is `opencode-go/gpt-5.6-luna`, falling back to `clinepass/cline-pass/mimo-v2.5` on the same OpenCode miss/usage-out. Last resort: `vision-free` (`opencode/mimo-v2.5-free`). Pasted images are auto-routed by `vision-router` with that same chain; `[VISION DESCRIPTION]` is injected before the lead sees the turn.
+- **Workers** — spawned via the `Agent` tool (`@tintinweb/pi-subagents`). Each runs in an isolated session with its own context window, role prompt (`~/.pi/agent/agents/*.md`), model, and tool allowlist. **Depth 1 only: workers never spawn workers.** Model is `clinepass/cline-pass/deepseek-v4-flash`, falling back to `opencode-go/deepseek-v4-flash` when ClinePass is unauthed or out of usage. The lead model is never switched. Do not pass `model` unless debugging.
+- **Vision** — `vision` worker chain: `openai-codex/gpt-5.6-luna` → `opencode-go/gpt-5.6-luna` → `opencode/mimo-v2.5-free` → `opencode-go/mimo-v2.5` → `clinepass/cline-pass/mimo-v2.5` (first authed, non-exhausted, image-capable model wins). Last resort: `vision-free` (`opencode/mimo-v2.5-free`, pinned). Pasted images are auto-routed by `vision-router` with that same chain; `[VISION DESCRIPTION]` is injected before the lead sees the turn.
 
 ## Lead routing (first match)
 
 Request → route → optional `/plan` approval → implement / delegate → tests → `/review`.
 
-1. **Images** → prefer the injected `[VISION DESCRIPTION]` from vision-router. Else `Agent` `subagent_type: vision` (Luna → ClinePass MiMo on OpenCode usage-out). If it still returns `VISION_FALLBACK_NEEDED`, retry once with `vision-free`.
+1. **Images** → prefer the injected `[VISION DESCRIPTION]` from vision-router. Else `Agent` `subagent_type: vision` (Codex Luna → Go Luna → free MiMo → Go MiMo → ClinePass MiMo). If it still returns `VISION_FALLBACK_NEEDED`, retry once with `vision-free`.
 2. **Lead does it:** design, architecture, multi-step reasoning, root-cause debugging, the TDD loop, fixes, scoped implementation, review, synthesis, tiny ≤2-tool tasks.
 3. **Else `Agent` the matching worker** — chores and bulk tool work go to workers. Keep your own turns short: decide, brief, check, reply.
 

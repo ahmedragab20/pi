@@ -29,9 +29,9 @@ You → pi (the lead, any model via /model or Ctrl+P)
 The lead owns every request end to end. It reasons, implements substantively,
 and delegates only mechanical chores to cheap Flash workers, which run in
 isolated sessions with their own context windows. Flash workers use
-OpenCode Flash, then ClinePass Flash if OpenCode is unauthed or out of usage.
-Vision uses Luna → ClinePass MiMo (`vision-free` last). The lead model is
-never switched.
+ClinePass Flash, then OpenCode Flash if ClinePass is unauthed or out of usage.
+Vision uses Codex Luna → Go Luna → free MiMo → Go MiMo → ClinePass MiMo. The
+lead model is never switched.
 
 **Action flow:** request → route (lead / vision / one scoped worker) → optional
 `/plan` approval → implement / delegate → tests & diagnostics → diff review
@@ -69,7 +69,7 @@ with one `vision-free` fallback.
 │   ├── context-efficiency.ts — early compact on windows < 500k
 │   ├── cursor-lazy/       — Cursor provider from disk-cached catalog
 │   ├── vision-router.ts   — auto vision for pasted images
-│   ├── worker-model.ts    — OpenCode usage-out → ClinePass (workers + vision)
+│   ├── worker-model.ts    — worker/vision model chains (ClinePass-first flash; 5-tier vision)
 │   ├── opencode-fallback.ts — shared usage-limit detection
 │   ├── sol-1m-alias.ts    — openai-codex/gpt-5.6-sol-1m → gpt-5.6-sol
 │   └── pi-tool-repair.json — grammar recovery for kimi/glm/qwen/minimax
@@ -142,10 +142,10 @@ long-context pricing above 272K input). Same pattern on Cursor Fable/Opus:
 | `vision-free` | mimo-v2.5-free | read, bash | One-time vision fallback |
 
 Workers are **depth 1** — they never spawn workers. Flash workers use
-`opencode-go/deepseek-v4-flash`, falling back to
-`clinepass/cline-pass/deepseek-v4-flash` when OpenCode is unauthed **or out of
-usage**. Vision worker: Luna → ClinePass MiMo on the same miss (`vision-free`
-last). The lead is never switched (`extensions/worker-model.ts`). Spawn with
+`clinepass/cline-pass/deepseek-v4-flash`, falling back to
+`opencode-go/deepseek-v4-flash` when ClinePass is unauthed **or out of
+usage**. Vision worker: Codex Luna → Go Luna → free MiMo → Go MiMo → ClinePass
+MiMo. The lead is never switched (`extensions/worker-model.ts`). Spawn with
 `Agent({ subagent_type, prompt, description })`. Background:
 `run_in_background: true`; await with `get_subagent_result` or `/agents`.
 Steer with `steer_subagent` or `@handle`. Parallel writers: `isolation: "worktree"`;

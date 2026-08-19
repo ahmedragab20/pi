@@ -7,7 +7,7 @@
  *
  *   1. decodes the pasted image(s) to `~/.pi/agent/vision/`
  *   2. auto-runs a vision-capable model in a child pi process
- *      (opencode-go/gpt-5.6-luna → ClinePass mimo → opencode mimo-free)
+ *      (Codex Luna → Go Luna → free MiMo → Go MiMo → ClinePass MiMo)
  *   3. transforms the user input to inject a `[VISION DESCRIPTION]` block and
  *      strips the raw image parts from the lead's message
  *
@@ -48,9 +48,11 @@ import {
 } from "./opencode-fallback.ts";
 
 const VISION_MODELS = [
+	"openai-codex/gpt-5.6-luna",
 	"opencode-go/gpt-5.6-luna",
-	"clinepass/cline-pass/mimo-v2.5",
 	"opencode/mimo-v2.5-free",
+	"opencode-go/mimo-v2.5",
+	"clinepass/cline-pass/mimo-v2.5",
 ] as const;
 const VISION_TIMEOUT_MS = 90_000;
 const ENTRY_TYPE = "vision-job";

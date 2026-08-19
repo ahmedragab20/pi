@@ -1,10 +1,11 @@
 /**
- * Worker / vision-worker models: OpenCode first, ClinePass if OpenCode is
- * unauthed or out of usage. Never switches the lead.
+ * Worker / vision-worker models: ClinePass first, OpenCode if ClinePass is
+ * unauthed or out of usage (vision: Codex Luna → Go Luna → free MiMo →
+ * Go MiMo → ClinePass MiMo). Never switches the lead.
  *
  * Agent frontmatter cannot express a fallback (a pinned `model:` is locked),
  * so worker files omit `model` and this fills `Agent.model` before spawn.
- * A failed OpenCode spawn is retried once on ClinePass and the tool result
+ * A failed ClinePass spawn is retried once on OpenCode and the tool result
  * is replaced so the lead never sees the quota error.
  */
 import { randomUUID } from "node:crypto";
@@ -24,11 +25,14 @@ import {
 type Pair = readonly [string, string];
 
 const FLASH: Pair[] = [
-	["opencode-go", "deepseek-v4-flash"],
 	["clinepass", "cline-pass/deepseek-v4-flash"],
+	["opencode-go", "deepseek-v4-flash"],
 ];
 const VISION: Pair[] = [
+	["openai-codex", "gpt-5.6-luna"],
 	["opencode-go", "gpt-5.6-luna"],
+	["opencode", "mimo-v2.5-free"],
+	["opencode-go", "mimo-v2.5"],
 	["clinepass", "cline-pass/mimo-v2.5"],
 ];
 
@@ -138,7 +142,12 @@ export default function workerModel(pi: ExtensionAPI) {
 	pi.on("after_provider_response", (event, ctx) => {
 		if (event.status !== 402) return;
 		const provider = ctx.model?.provider;
-		if (provider === "opencode-go" || provider === "opencode") {
+		if (
+			provider === "opencode-go" ||
+			provider === "opencode" ||
+			provider === "openai-codex" ||
+			provider === "clinepass"
+		) {
 			markProviderExhausted(provider);
 		}
 	});
@@ -158,7 +167,7 @@ export default function workerModel(pi: ExtensionAPI) {
 		if (picked === spec(fallbackOf(chain)) && ctx.hasUI && !notified) {
 			notified = true;
 			ctx.ui.notify(
-				"OpenCode unavailable or out of usage — workers using ClinePass",
+				"ClinePass unavailable or out of usage — workers using OpenCode",
 				"warning",
 			);
 		}
@@ -190,7 +199,7 @@ export default function workerModel(pi: ExtensionAPI) {
 		retried.add(event.toolCallId);
 		if (ctx.hasUI) {
 			ctx.ui.notify(
-				`OpenCode out of usage — retrying worker on ClinePass`,
+				`ClinePass out of usage — retrying worker on OpenCode`,
 				"warning",
 			);
 			notified = true;
@@ -221,13 +230,13 @@ export default function workerModel(pi: ExtensionAPI) {
 				finished.status !== "stopped";
 			const body =
 				(ok ? finished.result : finished.error || finished.result) ??
-				"ClinePass fallback finished with no text.";
+				"OpenCode fallback finished with no text.";
 			return {
 				content: [
 					{
 						type: "text" as const,
 						text: ok
-							? `${body}\n\n(retried on ${picked} after OpenCode usage limit)`
+							? `${body}\n\n(retried on ${picked} after ClinePass usage limit)`
 							: body,
 					},
 				],
@@ -239,7 +248,7 @@ export default function workerModel(pi: ExtensionAPI) {
 				content: [
 					{
 						type: "text" as const,
-						text: `${text}\n\nClinePass retry failed: ${msg}`,
+						text: `${text}\n\nOpenCode retry failed: ${msg}`,
 					},
 				],
 				isError: true,
