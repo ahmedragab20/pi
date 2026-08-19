@@ -27,6 +27,16 @@ Request → route → optional `/plan` approval → implement / delegate → tes
 
 Bug-fix TDD details: read the `harness-tdd` skill.
 
+## Todos — required for multistep tasks
+
+- **Any task with 3+ steps** (multiple files, tools, or spawns; multi-phase work like plan → implement → test → review) **starts with the `todo` tool before any other action**: `add` one item per step.
+- **One item per step, concrete and checkable** — "add validation to `src/x.ts`", "run `npm test`", "spawn `tests` worker". Never vague ("finish task").
+- **`toggle` done immediately after finishing each item** — never in advance, never batched at the end.
+- **New subtasks discovered mid-flight → `add` them right away**, then keep going.
+- **Skip the list only for trivial ≤2-step work** — a todo list for one edit is noise.
+- **`clear` when the whole task completes.** User can inspect progress anytime with `/todos`.
+- After compaction or `/pickup`-style resumes: `todo` `list` first, then continue from the first unfinished item — do not redo completed steps.
+
 ## HTML mockups (big UI)
 
 When the user asks for a **large UI change** — new feature UI, redesign, new screens, new flows — **offer HTML mockups first** via `ask_user_question`. Only proceed if they accept. Skip the offer only if they already said no this turn.
