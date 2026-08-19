@@ -1,9 +1,9 @@
 {
   "lastChangelogVersion": "0.84.2",
   "theme": "rose-pine",
-  "defaultProvider": "xai",
-  "defaultModel": "grok-4.6",
-  "defaultThinkingLevel": "medium",
+  "defaultProvider": "clinepass",
+  "defaultModel": "cline-pass/glm-5.3",
+  "defaultThinkingLevel": "high",
   "hideThinkingBlock": false,
   "externalEditor": "nvim",
   "quietStartup": true,
@@ -39,7 +39,11 @@
     "openai-codex/gpt-5.6-sol-1m",
     "cursor/claude-opus-5@300k",
     "cursor/kimi-k3",
-    "opencode-go/glm-5.3"
+    "opencode-go/glm-5.3",
+    "clinepass/cline-pass/glm-5.3",
+    "clinepass/cline-pass/kimi-k3",
+    "clinepass/cline-pass/deepseek-v4-pro",
+    "clinepass/cline-pass/qwen3.8-max"
   ],
   "warnings": {
     "anthropicExtraUsage": true
@@ -47,7 +51,9 @@
   "packages": [
     "npm:pi-tool-repair",
     "npm:@juicesharp/rpiv-ask-user-question",
-    "npm:pi-vim"
+    "npm:pi-vim",
+    "npm:pi-lens",
+    "npm:@tintinweb/pi-subagents"
   ],
   "showHardwareCursor": false,
   "editorPaddingX": 1,

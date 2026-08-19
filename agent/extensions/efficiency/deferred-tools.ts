@@ -25,7 +25,7 @@ export function registerDeferredTools(pi: ExtensionAPI): void {
 		name: "tool_search",
 		label: "Tool Search",
 		description:
-			"Find and activate deferred tools (LSP, ast-grep, reports, package extras). Core tools (read/bash/edit/write/ls/task/find/grep) are already on. Call this when you need a capability that is not in the active tool list.",
+			"Find and activate deferred tools (LSP, ast-grep, reports, package extras). Core tools (read/bash/edit/write/ls/Agent/find/grep) are already on. Call this when you need a capability that is not in the active tool list.",
 		promptSnippet:
 			"Search for additional tools when the active tools cannot perform the task (LSP, ast-grep, project reports).",
 		parameters: Type.Object({

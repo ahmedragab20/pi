@@ -38,7 +38,7 @@ IMPLEMENTER_NEXT_HELP = {
 REVIEWER_NEXT_HELP = {
     "already-done": "Verdict already recorded. Re-print AUTO_PLAN_VERDICT + LGTM./BLOCKED only if it is not on screen.",
     "first-review": "No findings yet. Review the diff against the approved plan and write findings.md.",
-    "worker": "Open findings remain. task worker to address every Status: open, then re-verify.",
+    "worker": "Open findings remain. Agent worker to address every Status: open, then re-verify.",
     "re-verify": "No open findings on disk. Re-read the files; then LGTM or write new opens.",
 }
 

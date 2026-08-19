@@ -16,7 +16,9 @@ export const CORE_ALWAYS = [
 	"edit",
 	"write",
 	"ls",
-	"task",
+	"Agent",
+	"get_subagent_result",
+	"steer_subagent",
 	"tool_search",
 ] as const;
 
@@ -37,6 +39,7 @@ export const COMPRESSIBLE_TOOLS = new Set([
 export const CHEAP_COMPACT_MODELS: Array<[string, string]> = [
 	["opencode", "deepseek-v4-flash-free"],
 	["opencode-go", "deepseek-v4-flash"],
+	["clinepass", "cline-pass/deepseek-v4-flash"],
 ];
 
 export const FOLDED_MARKER = "[folded]";
@@ -57,7 +60,8 @@ export function memoryDir(): string {
 
 export function isCompressibleTool(name: string): boolean {
 	const n = name.toLowerCase();
-	if (n === "task") return false;
+	if (n === "agent" || n === "get_subagent_result" || n === "steer_subagent")
+		return false;
 	if (COMPRESSIBLE_TOOLS.has(n)) return true;
 	return [...COMPRESSIBLE_TOOLS].some(
 		(t) => n.endsWith(`_${t}`) || n.endsWith(`-${t}`),

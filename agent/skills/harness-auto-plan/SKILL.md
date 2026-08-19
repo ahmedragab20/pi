@@ -42,7 +42,7 @@ Obey `implementer_next` / `reviewer_next`. `init` without `--new` reuses an unfi
 | `reviewer_next` | Do this |
 | --- | --- |
 | `first-review` | Review the diff, write `findings.md` |
-| `worker` | `task` worker on every `Status: open` |
+| `worker` | `Agent` worker on every `Status: open` |
 | `re-verify` | Re-read files; LGTM or new opens |
 | `already-done` | Re-print the two-line verdict only if it is not on screen |
 
@@ -54,7 +54,7 @@ Session overlay (script cannot see the chat): if pickup says `init` but this con
 | ------ | ------ | ------ |
 | **Implementer** | This pane (the lead that took the task) | Explore, diffing plan, implement the approved plan, spawn reviewer, wait for the verdict |
 | **Reviewer** | New herdr split, full pi leader at xhigh (else high) | Review, write findings, spawn workers, re-verify including nits, print `LGTM.` or `BLOCKED` |
-| **Worker** | `task` agent `worker` | Implement open findings. Depth 1. Fresh worker each round — do not resume |
+| **Worker** | `Agent` `subagent_type: worker` | Implement open findings. Depth 1. Fresh worker each round — do not resume |
 
 The reviewer never edits product files. The implementer never reviews their own work in this loop.
 
@@ -83,9 +83,9 @@ Pass this session's `--provider` / `--model` when you know them (TUI footer). Ot
 0. If `HERDR_ENV` is not `1`, stop. **`pickup --cwd`**. Continue from `implementer_next` only.
 1. `init` only when pickup says `init` (or you need `--new`). Store `run_id` and `dir`. Do not put run files in the consumer tree.
 2. Large UI (new screens/flows/redesign): the AGENTS.md mockup gate still applies before product code.
-3. `explore-or-plan`: explore if non-trivial (`task` `explorer`, one task). Draft the plan, submit to diffing, **print the plan URL**. Write the id to `<dir>/plan-id.txt` immediately, then await, obey `diffing-plan-review`. Only `approved` continues. Copy the approved body to `<dir>/plan.md`.
+3. `explore-or-plan`: explore if non-trivial (`Agent` `explorer`, one spawn). Draft the plan, submit to diffing, **print the plan URL**. Write the id to `<dir>/plan-id.txt` immediately, then await, obey `diffing-plan-review`. Only `approved` continues. Copy the approved body to `<dir>/plan.md`.
 4. `await-plan`: await the existing plan id. Do not submit another plan.
-5. `implement`: implement the approved plan yourself (substantive). Chores (`tests`, `lint`, …) still go to `task`. Write `<dir>/implementer-summary.md` when done (what changed, files, verification, leftover risk).
+5. `implement`: implement the approved plan yourself (substantive). Chores (`tests`, `lint`, …) still go to `Agent`. Write `<dir>/implementer-summary.md` when done (what changed, files, verification, leftover risk).
 6. `spawn-reviewer`: call the script (idempotent: live working reviewer → no second pane). Print `pane_id` and `thinking`. Then `wait-verdict`.
 7. `wait-verdict`: omit timeout unless the user set one. Safe to retry — it matches output already on screen, including a verdict printed before you waited.
 8. `report`: tell the user `verdict` (`LGTM` or `BLOCKED`). Do **not** hand to human `/review` unless they ask.
@@ -110,7 +110,7 @@ LGTM.
 
    Stop. No extra prose.
 
-3. If any open issue (nits included): `task` agent `worker` with a brief that includes the consumer cwd, the absolute findings path, and:
+3. If any open issue (nits included): `Agent` `subagent_type: worker` with a brief that includes the consumer cwd, the absolute findings path, and:
 
    - Address **every** `Status: open` issue, including nits. Nothing is too small.
    - Edit product files; do not spawn subagents.

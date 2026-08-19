@@ -14,16 +14,16 @@ Persistent rules for every pi session on this machine. Obey exactly. This is the
 ## Roles
 
 - **Lead (you)** — the main pi session. Whatever model you selected (`/model` or Ctrl+P). Owns design, architecture, debugging, the TDD loop, fixes, scoped implementation, review judgment, synthesis. The model is *your choice* — routing is model-agnostic.
-- **Workers** — spawned via the `task` tool (extension `~/.pi/agent/extensions/subagent`). Each runs in an isolated `pi` process with its own context window, role prompt (`~/.pi/agent/agents/*.md`), model, and tool allowlist. **Depth 1 only: workers never spawn workers.**
-- **Vision** — `vision` (`opencode-go/gpt-5.6-luna`) → one-time fallback `vision-free` (`opencode/mimo-v2.5-free`). Pasted images are auto-routed by `vision-router`; `[VISION DESCRIPTION]` is injected before the lead sees the turn.
+- **Workers** — spawned via the `Agent` tool (`@tintinweb/pi-subagents`). Each runs in an isolated session with its own context window, role prompt (`~/.pi/agent/agents/*.md`), model, and tool allowlist. **Depth 1 only: workers never spawn workers.** Model is `opencode-go/deepseek-v4-flash`, falling back to `clinepass/cline-pass/deepseek-v4-flash` when OpenCode is unauthed or out of usage (`GoUsageLimitError`). The lead model is never switched. Do not pass `model` unless debugging.
+- **Vision** — `vision` worker is `opencode-go/gpt-5.6-luna`, falling back to `clinepass/cline-pass/mimo-v2.5` on the same OpenCode miss/usage-out. Last resort: `vision-free` (`opencode/mimo-v2.5-free`). Pasted images are auto-routed by `vision-router` with that same chain; `[VISION DESCRIPTION]` is injected before the lead sees the turn.
 
 ## Lead routing (first match)
 
 Request → route → optional `/plan` approval → implement / delegate → tests → `/review`.
 
-1. **Images** → prefer the injected `[VISION DESCRIPTION]` from vision-router. Else `task` agent `vision` (spawn retries `vision-free` once).
+1. **Images** → prefer the injected `[VISION DESCRIPTION]` from vision-router. Else `Agent` `subagent_type: vision` (Luna → ClinePass MiMo on OpenCode usage-out). If it still returns `VISION_FALLBACK_NEEDED`, retry once with `vision-free`.
 2. **Lead does it:** design, architecture, multi-step reasoning, root-cause debugging, the TDD loop, fixes, scoped implementation, review, synthesis, tiny ≤2-tool tasks.
-3. **Else `task` the matching worker** — chores and bulk tool work go to workers. Keep your own turns short: decide, brief, check, reply.
+3. **Else `Agent` the matching worker** — chores and bulk tool work go to workers. Keep your own turns short: decide, brief, check, reply.
 
 Bug-fix TDD details: read the `harness-tdd` skill.
 
@@ -34,38 +34,36 @@ When the user asks for a **large UI change** — new feature UI, redesign, new s
 If they accept:
 
 1. Load `diffing-mockup-author`. Call `diffing_design` `show` (extract a draft if none exists — do **not** publish unless the human asked). Put those tokens in the worker brief. Do not invent Inter + indigo + Tailwind CDN.
-2. **`task` `worker` immediately** with a **very detailed brief**: every distinct state as its own screen id, copy, layout, colors from the design system, `data-diffing` region names, and "self-contained HTML (inline CSS; no build; no tabs/accordions/modals/toggles/JS that swaps content)." Put every requirement in the brief — the worker must not guess. Have the worker return the HTML inline (or a staged path under `~/.diffing/<repo>-<hash>/mockup-sources/`), **never** a file inside the consumer git tree.
+2. **`Agent` `worker` immediately** with a **very detailed brief**: every distinct state as its own screen id, copy, layout, colors from the design system, `data-diffing` region names, and "self-contained HTML (inline CSS; no build; no tabs/accordions/modals/toggles/JS that swaps content)." Put every requirement in the brief — the worker must not guess. Have the worker return the HTML inline (or a staged path under `~/.diffing/<repo>-<hash>/mockup-sources/`), **never** a file inside the consumer git tree.
 3. Worker **writes the mockup and checks it against that brief** (screens/states covered). Return: the HTML (or staged path) + what was implemented vs requested.
 4. **Route it through diffing mockup review** — load `diffing-mockup-review` and use the pi tools: `diffing_mockup_submit` (html/screens inline, optional `mode` / `designSystem` / `planId`) → share `/mockup/<id>` → **park** (`diffing_mockup_await` only when the human is reviewing right now). Fix submit hints (in-page state / generic style) before parking. Do **not** lead-review, rewrite, or "validate" the HTML yourself — the diffing verdict is the gate.
 5. **Obey the verdict** before any product code:
    - `approved` → `diffing_mockup_handoff`, then implement.
    - `changes-requested` → `diffing_mockup_inspect` open comments, revise **one screen at a time** with `diffing_mockup_screen` (`replace-region` when the comment has a `data-diffing` target; else `patch`), then `diffing_mockup_threads` reply + resolve, resubmit the same mockupId. Do **not** implement.
    - `rejected` → stop and rethink.
-6. On a revision request: identify the delta, then `task` `worker` again with a detailed brief for those changes. **Never write the mockup yourself** — always spawn the worker.
+6. On a revision request: identify the delta, then `Agent` `worker` again with a detailed brief for those changes. **Never write the mockup yourself** — always spawn the worker.
 
 Product implementation starts only after the diffing mockup verdict is `approved`.
 
-## Anti-bloat `task` contract (you enforce this)
+## Anti-bloat `Agent` contract (you enforce this)
 
-Every `task` call MUST be:
+Every `Agent` call MUST be:
 
 1. **One-line deliverable** — *"Run `<cmd>`, return: exit code, failing assertion, file:line."*
 2. **All inputs upfront** — paths, function names, anchors, exact commands. Never leave the worker guessing.
 3. **Capped answer format** — explicit shape. Reject "comprehensive report".
-4. **One task per call** — no bundling. Tests AND lint AND fix is three calls.
-5. **Match agent to task** — `worker` mechanical, `tests` tests, `lint` lint, `docs` docs, `git` git messages, `memory` repo memory, `explorer` research/mapping, `terminal-reader`/`log-reader`/`diff-reader` compression, `vision` images. Do not cross the tree.
+4. **One goal per call** — no bundling. Tests AND lint AND fix is three calls.
+5. **Match `subagent_type` to the work** — `worker` mechanical, `tests` tests, `lint` lint, `docs` docs, `git` git messages, `memory` repo memory, `explorer` research/mapping, `terminal-reader`/`log-reader`/`diff-reader` compression, `vision` images. Do not cross the tree.
 6. **No "let me know if unclear"** — workers execute. If a directive needs clarification, rewrite it.
 7. **Compact prompts** — long prose gets paid for twice.
 8. **Tighten on poor returns** — vague results call for stricter format on the next call, not more prose.
-9. **`background: true`** when the result is not needed before the next lead action. Do not background a chain.
+9. **`run_in_background: true`** when the result is not needed before the next lead action. Await with `get_subagent_result` (`wait: true`) or let the completion notification land.
 
-Spawn retries quota / rate-limit / auth / unknown-model **once** (paid Flash, or `vision-free` for vision). Do not pass `agent: worker-paid` unless debugging. If both attempts fail, report with evidence; do not re-task.
-
-Parallel writers run in git worktrees. Merge yourself; the spawn layer never auto-merges.
+If a spawn fails, report with evidence; do not keep re-spawning the same brief. Parallel writers: pass `isolation: "worktree"` and merge yourself.
 
 ## Chore rule (STRICT for leads)
 
-Chores (tests/fixtures/lint/docs/git/memory/compression/mechanical CRUD) → `task` only. Never via your own `bash`/`edit`. This includes running `git commit`, running `npm test`, fixing lint warnings, generating fixtures, and writing README prose. When tempted, `task` instead.
+Chores (tests/fixtures/lint/docs/git/memory/compression/mechanical CRUD) → `Agent` only. Never via your own `bash`/`edit`. This includes running `git commit`, running `npm test`, fixing lint warnings, generating fixtures, and writing README prose. When tempted, `Agent` instead.
 
 **Override:** only an explicit user directive in the message ("commit this yourself", "run `npm test` directly"). Anything implied does not count. Do that one chore alone; keep delegating everything else.
 
@@ -87,7 +85,7 @@ When running inside herdr (`HERDR_ENV=1`):
 
 ## Opt-in `/auto-plan` (herdr)
 
-Default remains `/plan` → implement → `/review`. `/auto-plan` is opt-in and requires herdr: after an approved plan and lead implementation, spawn an independent reviewer leader in a split pane at thinking xhigh (high if the model has no xhigh). That reviewer loops `task` `worker` until every finding including nits is addressed, then prints `LGTM.`. Skill: `harness-auto-plan`. Do not start this loop unless the user invoked `/auto-plan` or asked for it. Mid-session or after compaction, `pickup` and continue from the next unfinished step — do not redo completed phases.
+Default remains `/plan` → implement → `/review`. `/auto-plan` is opt-in and requires herdr: after an approved plan and lead implementation, spawn an independent reviewer leader in a split pane at thinking xhigh (high if the model has no xhigh). That reviewer loops `Agent` `worker` until every finding including nits is addressed, then prints `LGTM.`. Skill: `harness-auto-plan`. Do not start this loop unless the user invoked `/auto-plan` or asked for it. Mid-session or after compaction, `pickup` and continue from the next unfinished step — do not redo completed phases.
 
 ## Commits
 
@@ -95,17 +93,17 @@ Conventional Commits only: `<type>(<optional-scope>): <description>`. No `Co-aut
 
 ## No infinite subagent loops
 
-- **Depth 1 only:** only the lead may call `task`. Workers/explorers must never spawn subagents.
-- **One task per goal:** do not re-task the same goal with a rephrased brief after a completed run.
-- **At most one resume** per task id. If still incomplete or blocked, stop spawning — synthesize, fix a tiny gap yourself, or ask the user.
+- **Depth 1 only:** only the lead may call `Agent`. Workers/explorers must never spawn subagents.
+- **One spawn per goal:** do not re-spawn the same goal with a rephrased brief after a completed run.
+- **At most one resume** per agent id (`resume` on `Agent`, or `@handle`). If still incomplete or blocked, stop spawning — synthesize, fix a tiny gap yourself, or ask the user.
 - **No ping-pong:** never `explorer` → `worker` → `explorer` → … for the same question. Pattern: explore (optional) → implement → lead check → done.
-- If two attempts failed on the same goal, **escalate to the user** — do not keep launching tasks.
-- **Exception — `/auto-plan` only:** the reviewer ↔ worker loop in `harness-auto-plan` runs until 0 open findings (nits included) or a stalemate. It does not use the two-attempt cap. Still depth 1: the reviewer (a lead) calls `task`; the worker never does.
+- If two attempts failed on the same goal, **escalate to the user** — do not keep launching agents.
+- **Exception — `/auto-plan` only:** the reviewer ↔ worker loop in `harness-auto-plan` runs until 0 open findings (nits included) or a stalemate. It does not use the two-attempt cap. Still depth 1: the reviewer (a lead) calls `Agent`; the worker never does.
 
 ## Accuracy / evidence / compress / ask
 
 - **Accuracy overrides cost.** Never choose a cheaper path if it increases the chance of incorrect implementation, unsafe command, or data loss.
 - **Evidence.** No correctness claim without evidence (inspected files, command output, tests, docs, or vision descriptions you received).
-- **Compress before reasoning.** Long output / logs → `task` `terminal-reader` / `log-reader`. Long diffs → `harness-diff-read` (inspect first; `diff-reader` only for a path-scoped dump).
+- **Compress before reasoning.** Long output / logs → `Agent` `terminal-reader` / `log-reader`. Long diffs → `harness-diff-read` (inspect first; `diff-reader` only for a path-scoped dump).
 - **Stop and ask** when requirements are ambiguous with materially different implementations, a command may be destructive or irreversible, confidence is below 60, or required inputs are missing.
 - After implementing, reason over worker output; suite runs are chores (delegate to `tests`).

@@ -5,7 +5,7 @@ description: TDD bug loop for this pi harness. Use when writing a failing test, 
 
 # TDD bug loop (lead ↔ `tests`)
 
-Hypothesis → `task` `tests` writes ONE failing test + runs the exact command → lead judges → tighter test (deeper layer) or lead `edit`s the fix → `task` `tests` verifies.
+Hypothesis → `Agent` `tests` writes ONE failing test + runs the exact command → lead judges → tighter test (deeper layer) or lead `edit`s the fix → `Agent` `tests` verifies.
 
 - The lead owns hypothesis, loop decisions, and the fix.
 - `tests` owns test code and execution only.

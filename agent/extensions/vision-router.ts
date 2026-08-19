@@ -7,11 +7,11 @@
  *
  *   1. decodes the pasted image(s) to `~/.pi/agent/vision/`
  *   2. auto-runs a vision-capable model in a child pi process
- *      (opencode-go/gpt-5.6-luna, fallback opencode/mimo-v2.5-free)
+ *      (opencode-go/gpt-5.6-luna → ClinePass mimo → opencode mimo-free)
  *   3. transforms the user input to inject a `[VISION DESCRIPTION]` block and
  *      strips the raw image parts from the lead's message
  *
- * The lead keeps full tool access and can still `task` the `vision` agent
+ * The lead keeps full tool access and can still `Agent` the `vision` worker
  * (which can `read` the saved image file) if the description is missing or
  * wrong. Vision child processes are lean: no extensions/skills/templates,
  * no tools, no session.
@@ -41,9 +41,17 @@ import {
 	pruneOldPastes,
 	type SavedPaste,
 } from "./paste-images.ts";
+import {
+	isProviderExhausted,
+	isUsageLimitError,
+	markExhaustedFromError,
+} from "./opencode-fallback.ts";
 
-const PRIMARY_MODEL = "opencode-go/gpt-5.6-luna";
-const FALLBACK_MODEL = "opencode/mimo-v2.5-free";
+const VISION_MODELS = [
+	"opencode-go/gpt-5.6-luna",
+	"clinepass/cline-pass/mimo-v2.5",
+	"opencode/mimo-v2.5-free",
+] as const;
 const VISION_TIMEOUT_MS = 90_000;
 const ENTRY_TYPE = "vision-job";
 const JOB_TOKEN = /\[vision-job:(\d+)\]/g;
@@ -187,8 +195,10 @@ async function describeImages(
 		.filter(Boolean)
 		.join("\n");
 
-	for (const model of [PRIMARY_MODEL, FALLBACK_MODEL]) {
+	for (const model of VISION_MODELS) {
 		if (signal?.aborted) throw new Error("vision aborted");
+		const provider = model.split("/")[0] ?? "";
+		if (isProviderExhausted(provider)) continue;
 		const args = [
 			"-p",
 			"--no-session",
@@ -211,6 +221,7 @@ async function describeImages(
 			if (signal?.aborted) throw err;
 			const summary = err instanceof Error ? err.message : String(err);
 			console.error(`[vision-router] ${model} failed: ${summary}`);
+			if (isUsageLimitError(summary)) markExhaustedFromError(summary);
 		}
 	}
 	return null;
@@ -336,7 +347,7 @@ function leadText(job: VisionJob): string {
 	return [
 		`${stripPasteMarkup(job.userText)} ${markers}`.trim(),
 		"",
-		`[SYSTEM: Pasted image(s) were decoded to ${VISION_DIR}. Vision auto-delegation failed: ${job.error ?? "unknown error"}. Your FIRST tool call MUST be task with agent \`vision\` passing every image path (${paths}). If it returns VISION_FALLBACK_NEEDED, retry once with \`vision-free\`. You retain full tool access.]`,
+		`[SYSTEM: Pasted image(s) were decoded to ${VISION_DIR}. Vision auto-delegation failed: ${job.error ?? "unknown error"}. Your FIRST tool call MUST be Agent with subagent_type \`vision\` passing every image path (${paths}). If it returns VISION_FALLBACK_NEEDED, retry once with \`vision-free\`. You retain full tool access.]`,
 	].join("\n");
 }
 

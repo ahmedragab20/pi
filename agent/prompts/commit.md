@@ -16,4 +16,4 @@ Hard rules that always apply, no matter what project rules say:
 - **No `Co-authored-by:` trailers, no agent/bot attribution — commits are authored by the human only.** Strip any such trailer from the proposed message.
 - Subject short (≤50 chars where the project doesn't say otherwise), imperative mood, no trailing period.
 
-Delegate to `task` agent `git` only if you prefer a worker; either way apply the rules above.
+Delegate to `Agent` `subagent_type: git` only if you prefer a worker; either way apply the rules above.

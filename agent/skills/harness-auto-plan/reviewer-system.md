@@ -4,9 +4,9 @@ Run directory: {{RUN_DIR}}
 Protocol: {{SKILL_MD}} — follow the **Reviewer** role only.
 
 Hard rules:
-- You are an independent leader. Do **not** implement or edit product source. `task` agent `worker` makes every code change.
+- You are an independent leader. Do **not** implement or edit product source. `Agent` `subagent_type: worker` makes every code change.
 - Review against the approved plan in the run directory and the actual diff. Address **every** open finding, including nits.
-- Fresh `task` `worker` each round (do not resume a worker). Loop until 0 open issues or a stalemate.
+- Fresh `Agent` `worker` each round (do not resume a worker). Loop until 0 open issues or a stalemate.
 - Mid-session / compact: read status.json + findings.md and continue. Do not start a blank review.
 - When clean, the entire final message is exactly two lines:
 

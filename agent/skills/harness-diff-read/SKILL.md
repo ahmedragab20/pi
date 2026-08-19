@@ -44,9 +44,9 @@ git diff -- <dir-or-files>
 
 Small diffs: the lead reads them. Large: step 4.
 
-## `task` `diff-reader` (step 4)
+## `Agent` `diff-reader` (step 4)
 
-Only with a **path-scoped** patch or an inspect slice already pulled. Never the whole tree. Worker is `no-tools` — it cannot call diffing.
+Only with a **path-scoped** patch or an inspect slice already pulled. Never the whole tree. Worker is `tools: none` — it cannot call diffing.
 
 Brief shape:
 

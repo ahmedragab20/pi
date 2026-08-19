@@ -22,4 +22,4 @@ Hard rules that always apply, no matter what project rules say:
 
 **Step 3 — push.** Push to the remote immediately (`git push`; if the branch has no upstream yet, push with `git push -u origin <branch>`). Report the push result.
 
-Delegate to `task` agent `git` only if you prefer a worker; either way apply the rules above.
+Delegate to `Agent` `subagent_type: git` only if you prefer a worker; either way apply the rules above.

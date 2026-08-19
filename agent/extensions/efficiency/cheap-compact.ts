@@ -4,6 +4,7 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { generateSummaryWithUsage } from "@earendil-works/pi-coding-agent";
 import type { Model } from "@earendil-works/pi-ai";
+import { isProviderExhausted } from "../opencode-fallback.ts";
 import { CHEAP_COMPACT_MODELS } from "./constants.ts";
 
 function fileOpsXml(fileOps: {
@@ -39,6 +40,7 @@ export function registerCheapCompact(pi: ExtensionAPI): void {
 		let env: Record<string, string> | undefined;
 
 		for (const [provider, id] of CHEAP_COMPACT_MODELS) {
+			if (isProviderExhausted(provider)) continue;
 			const candidate = ctx.modelRegistry.find(provider, id);
 			if (!candidate) continue;
 			const auth = await ctx.modelRegistry.getApiKeyAndHeaders(candidate);

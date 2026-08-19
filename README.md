@@ -12,28 +12,30 @@ diffing-first workflow — stored as a dotfiles-style git repo at `~/.pi`.
 ```
 ~/.pi/
 ├── agent/                    — all pi config lives here
-│   ├── AGENTS.md             — always-on rules (routing, chore, task
+│   ├── AGENTS.md             — always-on rules (routing, chore, Agent
 │   │                           contract, scoped diffs, no-attribution)
+│   ├── SUBAGENTS.md          — Agent spawn + FleetView / viewer keymaps
+│   ├── subagents.json        — pi-subagents settings (no built-in defaults)
 │   ├── skills/
 │   │   ├── harness-tdd/      — TDD bug loop (on demand)
 │   │   ├── harness-diff-read/ — inspect → git → diff-reader
 │   │   └── harness-auto-plan/ — opt-in herdr plan→implement→reviewer LGTM loop
-│   ├── agents/               — 11 visible workers + hidden paid/vision-free
+│   ├── agents/               — 11 workers + vision-free fallback
 │   ├── extensions/
 │   │   ├── 00-fff-defaults.ts — PI_FFF_MODE=override, no $HOME index
 │   │   ├── 00-paste-chips.ts — [Image #N] / [Paste #N] chips
 │   │   ├── paste-images.ts   — decode pasted images to agent/vision/
-│   │   ├── subagent/         — task: background jobs, packets, worktrees,
-│   │   │                       spawn-layer paid retry (index, agents, jobs)
 │   │   ├── efficiency/       — compress, fold, Flash compact, deferred
 │   │   │                       tools, memory inject, git checkpoints,
 │   │   │                       thinking-router
 │   │   ├── context-efficiency.ts — early compact on small windows
 │   │   ├── cursor-lazy/      — Cursor provider from disk-cached catalog
 │   │   ├── vision-router.ts  — auto vision for pasted images
+│   │   ├── worker-model.ts   — OpenCode usage-out → ClinePass (workers + vision)
+│   │   ├── opencode-fallback.ts — shared usage-limit detection
 │   │   ├── sol-1m-alias.ts   — gpt-5.6-sol-1m → upstream gpt-5.6-sol
 │   │   └── pi-tool-repair.json
-│   ├── npm/                  — pi packages (fff, vim, …)
+│   ├── npm/                  — pi packages (pi-subagents, vim, …)
 │   ├── prompts/              — /diffing /plan /review /finish /commit
 │   │                           /explore /implement /auto-plan
 │   ├── themes/               — rose-pine (high-contrast TUI syntax)
@@ -45,7 +47,7 @@ diffing-first workflow — stored as a dotfiles-style git repo at `~/.pi`.
 ```
 
 Gitignored: `auth.json`, `models-store.json`, `trust.json`, Cursor SDK
-cache, `sessions/`, `vision/`, `tmp/` (tool-dumps, packets, worktrees),
+cache, `sessions/`, `vision/`, `tmp/` (tool-dumps),
 `memory/`, `waiting/`, and the local `extensions/diffing` symlink.
 
 Piolium is not loaded globally. Install it in the target repo when you audit.
@@ -53,8 +55,13 @@ Piolium is not loaded globally. Install it in the target repo when you audit.
 ## How it works
 
 - You are the lead (any model via `/model` or `Ctrl+P`); workers are cheap
-  Flash subprocesses. Blocking `task` is default; `background: true` returns
-  a job id. Results are a stub + packet path; quota retries once in spawn.
+  Flash sessions via `Agent` (`@tintinweb/pi-subagents`). Foreground is
+  default; `run_in_background: true` returns an agent id. Keymaps:
+  [agent/SUBAGENTS.md](agent/SUBAGENTS.md).
+- ClinePass: custom provider in `agent/models.json`. Export `CLINE_API_KEY`
+  (Settings → API Keys at app.cline.bot), then `/model` or Ctrl+P. Flash
+  workers and the vision worker fall back here when OpenCode is unauthed or
+  out of usage — the lead is never switched.
 - Diffs: inspect first (`summary` → `--path` files/slice). Path-scoped
   `git diff` next. `diff-reader` last, never the whole tree.
 - Diffing review loop: `/plan` before coding, `/review` hands the diff to
@@ -121,3 +128,4 @@ if (!this.hasOverlay() && matchesKey(data, "alt+down")) {
 
 Full architecture, model inventory, agent table, token commands, and
 diffing workflow: [agent/README.md](agent/README.md).
+Subagent spawn + keymaps: [agent/SUBAGENTS.md](agent/SUBAGENTS.md).

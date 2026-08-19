@@ -67,7 +67,7 @@ export function registerProjectMemory(pi: ExtensionAPI): void {
 			const path = resolveMemoryPath(ctx);
 			if (args.trim().toLowerCase() === "refresh") {
 				ctx.ui.notify(
-					`Refresh: task the memory worker to rewrite ${path} (≤4KB). Not auto-run.`,
+					`Refresh: Agent the memory worker to rewrite ${path} (≤4KB). Not auto-run.`,
 					"info",
 				);
 				return;
