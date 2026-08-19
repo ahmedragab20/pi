@@ -1,9 +1,9 @@
 {
   "lastChangelogVersion": "0.84.2",
   "theme": "rose-pine",
-  "defaultProvider": "opencode-go",
-  "defaultModel": "glm-5.3",
-  "defaultThinkingLevel": "high",
+  "defaultProvider": "xai",
+  "defaultModel": "grok-4.6",
+  "defaultThinkingLevel": "medium",
   "hideThinkingBlock": false,
   "externalEditor": "nvim",
   "quietStartup": true,

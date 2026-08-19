@@ -79,7 +79,15 @@ Follow the `diffing-*` skills. Always print the review/plan/mockup URL before `a
 
 ## Herdr + diffing
 
-When running inside herdr (`HERDR_ENV=1`), the diffing server prints `DIFFING_READY <url> mode=… pid=…` to stderr once listening — wait on it with `herdr wait output <pane> --match "DIFFING_READY"` (exact match, not the human banner). After each `await_review` / `await_plan_review` / `await_mockup_review` verdict, the pi extension surfaces `DIFFING_VERDICT <kind> decision=…` in the pi pane (notify + widget), greppable via `herdr pane read`. Coordination recipes (server in a sibling pane, tests during a parked review, parallel agents, reading the server pane) live in the diffing skill's "herdr coordination" section — never edit herdr's own skill (`~/.agents/skills/herdr/`).
+When running inside herdr (`HERDR_ENV=1`):
+
+- **Never split a herdr pane just to open a diffing session.** The session is a background process, not a neighbor terminal. Prefer MCP `start_review_session`. CLI fallback: background `diffing --web --no-open` in this pane (persistent; a foreground call that dies with the tool is not enough). Split only for work that needs its own terminal (dev server, tests, another agent).
+- The server prints `DIFFING_READY <url> mode=… pid=…` to stderr once listening — the MCP return or that background command's output already has the URL. Do not `herdr wait output` on a sibling pane for this. After each `await_review` / `await_plan_review` / `await_mockup_review` verdict, the pi extension surfaces `DIFFING_VERDICT <kind> decision=…` in the pi pane (notify + widget), greppable via `herdr pane read`.
+- Other herdr recipes (tests during a parked review, parallel agents) live in the diffing skill's "herdr coordination" section — never edit herdr's own skill (`~/.agents/skills/herdr/`).
+
+## Opt-in `/auto-plan` (herdr)
+
+Default remains `/plan` → implement → `/review`. `/auto-plan` is opt-in and requires herdr: after an approved plan and lead implementation, spawn an independent reviewer leader in a split pane at thinking xhigh (high if the model has no xhigh). That reviewer loops `task` `worker` until every finding including nits is addressed, then prints `LGTM.`. Skill: `harness-auto-plan`. Do not start this loop unless the user invoked `/auto-plan` or asked for it. Mid-session or after compaction, `pickup` and continue from the next unfinished step — do not redo completed phases.
 
 ## Commits
 
@@ -92,6 +100,7 @@ Conventional Commits only: `<type>(<optional-scope>): <description>`. No `Co-aut
 - **At most one resume** per task id. If still incomplete or blocked, stop spawning — synthesize, fix a tiny gap yourself, or ask the user.
 - **No ping-pong:** never `explorer` → `worker` → `explorer` → … for the same question. Pattern: explore (optional) → implement → lead check → done.
 - If two attempts failed on the same goal, **escalate to the user** — do not keep launching tasks.
+- **Exception — `/auto-plan` only:** the reviewer ↔ worker loop in `harness-auto-plan` runs until 0 open findings (nits included) or a stalemate. It does not use the two-attempt cap. Still depth 1: the reviewer (a lead) calls `task`; the worker never does.
 
 ## Accuracy / evidence / compress / ask
 

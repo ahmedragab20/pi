@@ -16,7 +16,8 @@ diffing-first workflow — stored as a dotfiles-style git repo at `~/.pi`.
 │   │                           contract, scoped diffs, no-attribution)
 │   ├── skills/
 │   │   ├── harness-tdd/      — TDD bug loop (on demand)
-│   │   └── harness-diff-read/ — inspect → git → diff-reader
+│   │   ├── harness-diff-read/ — inspect → git → diff-reader
+│   │   └── harness-auto-plan/ — opt-in herdr plan→implement→reviewer LGTM loop
 │   ├── agents/               — 11 visible workers + hidden paid/vision-free
 │   ├── extensions/
 │   │   ├── 00-fff-defaults.ts — PI_FFF_MODE=override, no $HOME index
@@ -34,7 +35,7 @@ diffing-first workflow — stored as a dotfiles-style git repo at `~/.pi`.
 │   │   └── pi-tool-repair.json
 │   ├── npm/                  — pi packages (fff, vim, …)
 │   ├── prompts/              — /diffing /plan /review /finish /commit
-│   │                           /explore /implement
+│   │                           /explore /implement /auto-plan
 │   ├── themes/               — rose-pine (high-contrast TUI syntax)
 │   ├── settings.json         — xai/grok-4.6 default, Ctrl+P cycle,
 │   │                           compact TUI, nvim editor
@@ -57,7 +58,8 @@ Piolium is not loaded globally. Install it in the target repo when you audit.
 - Diffs: inspect first (`summary` → `--path` files/slice). Path-scoped
   `git diff` next. `diff-reader` last, never the whole tree.
 - Diffing review loop: `/plan` before coding, `/review` hands the diff to
-  you, `/finish` applies feedback.
+  you, `/finish` applies feedback. Opt-in `/auto-plan` (herdr only) adds an
+  independent xhigh reviewer pane that loops a worker until `LGTM.`
 - Extensions hot-reload with `/reload`.
 
 ## User-message jump patch (re-apply after pi updates)

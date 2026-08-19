@@ -57,6 +57,7 @@ with one `vision-free` fallback.
 │                             scoped diffs, no-attribution)
 ├── skills/harness-tdd/    — TDD bug loop (progressive disclosure)
 ├── skills/harness-diff-read/ — inspect → path-scoped git → diff-reader
+├── skills/harness-auto-plan/ — opt-in herdr plan→implement→reviewer LGTM loop
 ├── extensions/
 │   ├── 00-fff-defaults.ts — PI_FFF_MODE=override, FFF_ENABLE_HOME_SCAN=0
 │   ├── 00-paste-chips.ts  — [Image #N] / [Paste #N] chips (no remount)
@@ -72,7 +73,7 @@ with one `vision-free` fallback.
 ├── npm/                   — pi packages (fff, vim, …)
 ├── themes/rose-pine.json  — card chrome + high-contrast TUI syntax
 ├── agents/                — 11 visible workers + hidden paid/vision-free twins
-├── prompts/               — /diffing /plan /review /finish /commit /implement /explore
+├── prompts/               — /diffing /plan /review /finish /commit /implement /explore /auto-plan
 ├── tmp/                   — gitignored: tool-dumps, packets, worktrees
 ├── memory/                — gitignored: global MEMORY.md slugs
 └── vision/                — decoded pasted images (pruned after 7 days)
@@ -165,6 +166,7 @@ Human-in-the-loop review is the default workflow, not an add-on:
 | `/finish` | Process the human's review handoff — apply edits, answer, resolve threads |
 | `/diffing <route>` | Router: start / finish / plan / mockup / pr / status |
 | `/implement <query>` | explore → plan → diffing approval → implement → verify → review |
+| `/auto-plan <what>` | **Opt-in, herdr only.** Plan → approval → implement → split-pane reviewer at xhigh (else high) ↔ worker until `LGTM.` Not the default. |
 
 Rules enforced in `AGENTS.md`: always print the review/plan/mockup URL before
 awaiting; plans and mockup sources live under `~/.diffing/` never in the
@@ -179,14 +181,20 @@ Inside herdr (`HERDR_ENV=1`), pi and diffing expose two machine-readable markers
 so panes coordinate without reading each other's scrollback:
 
 - `DIFFING_READY <url> mode=web|gh-pr pid=<pid>` — diffing server stderr, once
-  listening. Wait exactly: `herdr wait output <pane> --match "DIFFING_READY"`.
+  listening. Open a session with MCP `start_review_session` or a **background**
+  `diffing --web --no-open` in this pane — never `herdr pane split` just for
+  that. The tool output already has the URL.
 - `DIFFING_VERDICT <plan|mockup|review> decision=<…>` — surfaced in the pi pane
   (notify + widget) after each await verdict. Grep via `herdr pane read`.
 
-Recipes (server in a sibling pane, tests during a parked review, parallel
-agents + `wait agent-status`, reading the server pane) live in the `diffing`
-skill's "herdr coordination" section. Never edit the herdr team's own skill
-(`~/.agents/skills/herdr/`) — keep diffing-specific recipes in the diffing skill.
+Recipes (tests during a parked review, parallel agents + `wait agent-status`)
+live in the `diffing` skill's "herdr coordination" section. Never edit the
+herdr team's own skill (`~/.agents/skills/herdr/`) — keep diffing-specific
+recipes in the diffing skill.
+
+Opt-in `/auto-plan` (skill `harness-auto-plan`) spawns a reviewer pi via
+`herdr agent start --kind pi` and waits on `AUTO_PLAN_VERDICT LGTM|BLOCKED`.
+`pickup` resumes mid-session from the next unfinished step.
 
 ## Day-to-day
 

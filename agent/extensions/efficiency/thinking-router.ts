@@ -9,14 +9,29 @@ const HIGH =
 const LOW =
 	/\b(commit|format|rename|show|list|explain briefly)\b/i;
 
+const RANK: Record<string, number> = {
+	off: 0,
+	minimal: 1,
+	low: 2,
+	medium: 3,
+	high: 4,
+	xhigh: 5,
+	max: 6,
+};
+
 function classify(text: string): ThinkingLevel {
 	if (HIGH.test(text)) return "high";
 	if (LOW.test(text)) return "low";
 	return "medium";
 }
 
+function envDisabled(): boolean {
+	const v = (process.env.PI_THINKING_ROUTER || "").trim().toLowerCase();
+	return v === "0" || v === "off" || v === "false";
+}
+
 export function registerThinkingRouter(pi: ExtensionAPI): void {
-	let enabled = true;
+	let enabled = !envDisabled();
 	let locked = false;
 	let autoSetting = false;
 	let armed = false;
@@ -44,7 +59,10 @@ export function registerThinkingRouter(pi: ExtensionAPI): void {
 			return;
 		}
 		const level = classify(event.text);
-		if (level !== pi.getThinkingLevel()) {
+		const current = pi.getThinkingLevel();
+		// Never auto-lower thinking. CLI `--thinking xhigh` must survive a
+		// prompt that matches "review" (which classifies as high).
+		if ((RANK[level] ?? 0) > (RANK[current] ?? 0)) {
 			autoSetting = true;
 			try {
 				pi.setThinkingLevel(level);
