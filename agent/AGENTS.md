@@ -95,7 +95,7 @@ When running inside herdr (`HERDR_ENV=1`):
 
 ## Opt-in `/auto-plan` (herdr)
 
-Default remains `/plan` → implement → `/review`. `/auto-plan` is opt-in and requires herdr: plan → approval → **lead implements** → only then spawn an independent reviewer leader in a split pane at thinking xhigh (high if the model has no xhigh). Never spawn that reviewer first, and never spawn it on an empty working tree. That reviewer loops `Agent` `worker` until every finding including nits is addressed, then prints `LGTM.`. Skill: `harness-auto-plan`. Do not start this loop unless the user invoked `/auto-plan` or asked for it. Mid-session or after compaction, `pickup` and continue from the next unfinished step — do not redo completed phases.
+Default remains `/plan` → implement → `/review`. `/auto-plan` is opt-in and requires herdr: plan → approval → **lead implements** → only then spawn an independent reviewer leader in a split pane at thinking xhigh (high if the model has no xhigh). Never spawn that reviewer first, and never spawn it on an empty working tree. That reviewer loops `Agent` `worker` until every finding including nits is addressed, then prints `LGTM.`. After a verdict the script closes helper panes (the reviewer); the implementer pane stays. Skill: `harness-auto-plan`. Do not start this loop unless the user invoked `/auto-plan` or asked for it. Mid-session or after compaction, `pickup` and continue from the next unfinished step — do not redo completed phases.
 
 ## Commits
 

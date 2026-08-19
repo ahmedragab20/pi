@@ -30,9 +30,9 @@ IMPLEMENTER_NEXT_HELP = {
     "explore-or-plan": "Explore if needed, then draft/submit the plan. Do not implement or spawn a reviewer.",
     "await-plan": "Plan already submitted. Await that plan id. Do not submit a new plan or spawn a reviewer.",
     "implement": "Plan is approved. Implement it now. Do not re-plan. Do not spawn a reviewer until implementation is done and the consumer tree has a reviewable diff.",
-    "spawn-reviewer": "Implementation is done and there is a reviewable diff. spawn-reviewer (idempotent), then wait-verdict.",
-    "wait-verdict": "Reviewer is in flight. wait-verdict. Do not spawn another reviewer.",
-    "report": "Verdict already recorded. Report it. Do not continue the loop.",
+    "spawn-reviewer": "Implementation is done and there is a reviewable diff. review (spawn+wait+close helpers) or spawn-reviewer then wait-verdict.",
+    "wait-verdict": "Reviewer is in flight. wait-verdict (closes helpers after the verdict). Do not spawn another reviewer. Never close this pane.",
+    "report": "Verdict recorded. finish (idempotent; closes leftover helpers, never this pane), then tell the user the verdict.",
 }
 
 REVIEWER_NEXT_HELP = {
@@ -261,6 +261,17 @@ def count_open_findings(text: str) -> int:
     return n
 
 
+def _result(data: dict[str, Any]) -> dict[str, Any]:
+    result = data.get("result")
+    return result if isinstance(result, dict) else data
+
+
+def pane_from_payload(data: dict[str, Any]) -> dict[str, Any]:
+    result = _result(data)
+    pane = result.get("pane") or data.get("pane") or {}
+    return pane if isinstance(pane, dict) else {}
+
+
 def pane_info(pane_id: str | None) -> dict[str, Any]:
     if not pane_id:
         return {"id": None, "alive": False}
@@ -273,13 +284,15 @@ def pane_info(pane_id: str | None) -> dict[str, Any]:
         data = json.loads(proc.stdout or "{}")
     except json.JSONDecodeError:
         return {"id": pane_id, "alive": True}
-    pane = (data.get("result") or {}).get("pane") or data.get("pane") or {}
+    pane = pane_from_payload(data)
     return {
         "id": pane_id,
         "alive": True,
-        "agent": pane.get("agent"),
+        "agent": pane.get("agent") or pane.get("display_agent"),
         "agent_status": pane.get("agent_status"),
         "cwd": pane.get("cwd") or pane.get("foreground_cwd"),
+        "label": pane.get("label") or pane.get("title"),
+        "tab_id": pane.get("tab_id"),
     }
 
 
@@ -298,6 +311,150 @@ def pane_verdict(pane_id: str | None) -> str | None:
     if proc.returncode != 0:
         return None
     return parse_verdict_from_text(proc.stdout or "")
+
+
+def list_panes() -> list[dict[str, Any]]:
+    if os.environ.get("HERDR_ENV") != "1":
+        return []
+    proc = herdr("pane", "list")
+    if proc.returncode != 0:
+        return []
+    try:
+        data = json.loads(proc.stdout or "{}")
+    except json.JSONDecodeError:
+        return []
+    result = _result(data)
+    panes = result.get("panes") or data.get("panes") or []
+    if isinstance(panes, dict):
+        panes = [panes]
+    if not isinstance(panes, list):
+        return []
+    return [p for p in panes if isinstance(p, dict) and p.get("pane_id")]
+
+
+def review_label(run_id: str) -> str:
+    return f"review:{run_id}"
+
+
+def review_agent_name(run_id: str) -> str:
+    return f"review-{run_id}"
+
+
+def pane_matches_run(pane: dict[str, Any], run_id: str) -> bool:
+    label = str(pane.get("label") or pane.get("title") or "")
+    agent = str(pane.get("agent") or pane.get("display_agent") or pane.get("name") or "")
+    marker = review_label(run_id)
+    return label == marker or label.startswith(marker + " ") or agent == review_agent_name(run_id)
+
+
+def helper_ids_for_run(run_id: str, meta: dict[str, Any]) -> list[str]:
+    ids: list[str] = []
+
+    def add(pane_id: Any) -> None:
+        text = str(pane_id or "").strip()
+        if text and text not in ids:
+            ids.append(text)
+
+    add(meta.get("reviewer_pane"))
+    helpers = meta.get("helper_panes")
+    if isinstance(helpers, list):
+        for item in helpers:
+            add(item)
+    for pane in list_panes():
+        if pane_matches_run(pane, run_id):
+            add(pane.get("pane_id"))
+    return ids
+
+
+def protected_pane_ids(meta: dict[str, Any], extra: list[str] | None = None) -> list[str]:
+    keep: list[str] = []
+
+    def add(pane_id: Any) -> None:
+        text = str(pane_id or "").strip()
+        if text and text not in keep:
+            keep.append(text)
+
+    add(meta.get("implementer_pane"))
+    add(os.environ.get("HERDR_PANE_ID"))
+    if extra:
+        for item in extra:
+            add(item)
+    return keep
+
+
+def track_helper(meta: dict[str, Any], pane_id: str | None) -> list[str]:
+    helpers: list[str] = []
+    existing = meta.get("helper_panes")
+    if isinstance(existing, list):
+        for item in existing:
+            text = str(item or "").strip()
+            if text and text not in helpers:
+                helpers.append(text)
+    text = str(pane_id or "").strip()
+    if text and text not in helpers:
+        helpers.append(text)
+    meta["helper_panes"] = helpers
+    return helpers
+
+
+def persist_verdict(run_id: str, verdict: str) -> dict[str, Any]:
+    phase = "lgtm" if verdict == "LGTM" else "blocked"
+    return write_status(run_id, phase=phase, verdict=verdict)
+
+
+def close_helpers(
+    run_id: str,
+    *,
+    keep: list[str] | None = None,
+    dry_run: bool = False,
+) -> dict[str, Any]:
+    meta = read_meta(run_id)
+    protected = protected_pane_ids(meta, keep)
+    candidates = helper_ids_for_run(run_id, meta)
+    closed: list[dict[str, Any]] = []
+    skipped: list[dict[str, Any]] = []
+    if os.environ.get("HERDR_ENV") != "1":
+        return {
+            "closed": closed,
+            "skipped": [{"id": pid, "reason": "not in herdr"} for pid in candidates],
+            "kept": protected,
+            "dry_run": dry_run,
+        }
+    for pane_id in candidates:
+        if pane_id in protected:
+            skipped.append({"id": pane_id, "reason": "protected"})
+            continue
+        info = pane_info(pane_id)
+        if not info.get("alive"):
+            skipped.append({"id": pane_id, "reason": "already-gone"})
+            continue
+        if dry_run:
+            closed.append({"id": pane_id, "ok": True, "dry_run": True})
+            continue
+        proc = herdr("pane", "close", pane_id)
+        if proc.returncode == 0:
+            closed.append({"id": pane_id, "ok": True})
+        else:
+            err = (proc.stderr or proc.stdout or "pane close failed").strip()
+            skipped.append({"id": pane_id, "reason": err, "ok": False})
+    return {"closed": closed, "skipped": skipped, "kept": protected, "dry_run": dry_run}
+
+
+def resolve_reviewer_pane(run_id: str, meta: dict[str, Any]) -> str | None:
+    stored = meta.get("reviewer_pane")
+    stored_id = str(stored).strip() if stored else None
+    if stored_id and pane_info(stored_id).get("alive"):
+        return stored_id
+    for pane_id in helper_ids_for_run(run_id, meta):
+        if pane_id in protected_pane_ids(meta):
+            continue
+        if pane_info(pane_id).get("alive"):
+            if pane_id != stored_id:
+                meta["reviewer_pane"] = pane_id
+                track_helper(meta, pane_id)
+                write_meta(run_id, meta)
+            return pane_id
+    return stored_id
 
 
 def run_mtime(directory: Path) -> float:
@@ -332,7 +489,7 @@ def inspect_run(run_id: str) -> dict[str, Any]:
     if files["findings"]:
         open_findings = count_open_findings((directory / "findings.md").read_text())
 
-    reviewer_pane = meta.get("reviewer_pane")
+    reviewer_pane = resolve_reviewer_pane(run_id, meta)
     reviewer = pane_info(reviewer_pane)
     screen_verdict = pane_verdict(reviewer_pane) if reviewer.get("alive") else None
     stored_verdict = status.get("verdict")
@@ -395,6 +552,21 @@ def inspect_run(run_id: str) -> dict[str, Any]:
             "implementer-summary.md exists but the consumer tree has no reviewable diff. "
             "Implement the approved plan first. Do not spawn a reviewer."
         )
+    protected = protected_pane_ids(meta)
+    helper_ids = helper_ids_for_run(run_id, meta)
+    helpers = [pane_info(pid) for pid in helper_ids]
+    finish_needed = bool(
+        verdict
+        and any(
+            h.get("alive") and h.get("id") and str(h.get("id")) not in protected
+            for h in helpers
+        )
+    )
+    if implementer_next == "report" and finish_needed:
+        implementer_help = (
+            "Verdict recorded. Call finish to close leftover helper panes "
+            "(never this pane), then tell the user the verdict."
+        )
     return {
         "ok": True,
         "run_id": run_id,
@@ -413,11 +585,14 @@ def inspect_run(run_id: str) -> dict[str, Any]:
         "round": status.get("round") or 0,
         "verdict": verdict,
         "reviewer": reviewer,
+        "helpers": helpers,
+        "finish_needed": finish_needed,
         "pi_present": bool(pi_present),
         "mtime": run_mtime(directory),
         "meta": {
             "implementer_pane": meta.get("implementer_pane"),
             "reviewer_pane": reviewer_pane,
+            "helper_panes": meta.get("helper_panes") or [],
             "thinking": meta.get("thinking"),
             "provider": meta.get("provider"),
             "model": meta.get("model"),
@@ -576,6 +751,7 @@ def cmd_init(args: argparse.Namespace) -> None:
         "cwd": cwd,
         "implementer_pane": os.environ.get("HERDR_PANE_ID"),
         "reviewer_pane": None,
+        "helper_panes": [],
         "thinking": None,
         "provider": None,
         "model": None,
@@ -634,13 +810,16 @@ def pane_id_from_split(data: dict[str, Any]) -> str:
 
 
 def cmd_spawn_reviewer(args: argparse.Namespace) -> None:
+    emit(spawn_reviewer(args))
+
+
+def spawn_reviewer(args: argparse.Namespace) -> dict[str, Any]:
     run_id = args.run_id
     snap = inspect_run(run_id)
     if not snap.get("ok"):
         die(str(snap.get("error") or f"missing run {run_id}"))
     if snap.get("implementer_next") == "report":
-        emit({**snap, "spawned": False, "reason": "verdict already recorded"})
-        return
+        return {**snap, "spawned": False, "reason": "verdict already recorded"}
     nxt = snap.get("implementer_next")
     if nxt not in ("spawn-reviewer", "wait-verdict"):
         die(
@@ -657,24 +836,26 @@ def cmd_spawn_reviewer(args: argparse.Namespace) -> None:
     model = resolved.get("model")
     self_pane = args.self_pane or self_pane_id()
     system_path = expand_reviewer_system(run_id)
-    existing_pane = args.pane or meta.get("reviewer_pane")
+    existing_pane = args.pane or resolve_reviewer_pane(run_id, meta)
     existing = pane_info(existing_pane)
     resume = bool(snap.get("files", {}).get("findings")) or snap.get("reviewer_next") != "first-review"
     prompt = reviewer_prompt(run_id, resume=resume)
-    agent_name = f"review-{run_id}"
+    agent_name = review_agent_name(run_id)
 
-    def record_pane(pane_id: str) -> None:
+    def record_pane(pane_id: str, *, reviewing: bool = True) -> None:
         meta.update(
             {
-                "implementer_pane": self_pane,
+                "implementer_pane": self_pane or meta.get("implementer_pane"),
                 "reviewer_pane": pane_id,
                 "thinking": thinking,
                 "provider": provider,
                 "model": model,
             }
         )
+        track_helper(meta, pane_id)
         write_meta(run_id, meta)
-        write_status(run_id, phase="reviewing")
+        if reviewing:
+            write_status(run_id, phase="reviewing")
 
     if (
         not args.dry_run
@@ -683,19 +864,16 @@ def cmd_spawn_reviewer(args: argparse.Namespace) -> None:
         and existing.get("agent_status") == "working"
     ):
         record_pane(str(existing_pane))
-        emit(
-            {
-                "ok": True,
-                "run_id": run_id,
-                "pane_id": existing_pane,
-                "resumed": True,
-                "spawned": False,
-                "action": "wait-verdict",
-                "thinking": thinking,
-                **{k: snap[k] for k in ("implementer_next", "reviewer_next") if k in snap},
-            }
-        )
-        return
+        return {
+            "ok": True,
+            "run_id": run_id,
+            "pane_id": existing_pane,
+            "resumed": True,
+            "spawned": False,
+            "action": "wait-verdict",
+            "thinking": thinking,
+            **{k: snap[k] for k in ("implementer_next", "reviewer_next") if k in snap},
+        }
 
     if not args.dry_run and existing.get("alive") and existing.get("agent") == "pi":
         # Idle/done/blocked pi: resume prompt, do not split a second reviewer.
@@ -706,19 +884,16 @@ def cmd_spawn_reviewer(args: argparse.Namespace) -> None:
                 + f" (pane={existing_pane})"
             )
         record_pane(str(existing_pane))
-        emit(
-            {
-                "ok": True,
-                "run_id": run_id,
-                "pane_id": existing_pane,
-                "resumed": True,
-                "spawned": False,
-                "action": "wait-verdict",
-                "thinking": thinking,
-                "prompted": True,
-            }
-        )
-        return
+        return {
+            "ok": True,
+            "run_id": run_id,
+            "pane_id": existing_pane,
+            "resumed": True,
+            "spawned": False,
+            "action": "wait-verdict",
+            "thinking": thinking,
+            "prompted": True,
+        }
 
     if existing.get("alive") and existing_pane and not args.pane:
         # Pane still there (shell, crashed pi). Reuse it instead of splitting.
@@ -766,21 +941,18 @@ def cmd_spawn_reviewer(args: argparse.Namespace) -> None:
     }
 
     if args.dry_run:
-        emit(
-            {
-                "ok": True,
-                "dry_run": True,
-                "run_id": run_id,
-                "self_pane": self_pane,
-                "reuse_pane": args.pane,
-                "thinking": thinking,
-                "provider": provider,
-                "model": model,
-                "reason": resolved.get("reason"),
-                "planned": planned,
-            }
-        )
-        return
+        return {
+            "ok": True,
+            "dry_run": True,
+            "run_id": run_id,
+            "self_pane": self_pane,
+            "reuse_pane": args.pane,
+            "thinking": thinking,
+            "provider": provider,
+            "model": model,
+            "reason": resolved.get("reason"),
+            "planned": planned,
+        }
 
     if args.pane:
         pane_id = args.pane
@@ -802,16 +974,7 @@ def cmd_spawn_reviewer(args: argparse.Namespace) -> None:
     start_cmd = [a.replace("{pane_id}", pane_id) if a == "{pane_id}" else a for a in start_args]
     start_proc = herdr(*start_cmd)
     if start_proc.returncode != 0:
-        meta.update(
-            {
-                "implementer_pane": self_pane,
-                "reviewer_pane": pane_id,
-                "thinking": thinking,
-                "provider": provider,
-                "model": model,
-            }
-        )
-        write_meta(run_id, meta)
+        record_pane(pane_id, reviewing=False)
         err = (start_proc.stderr or start_proc.stdout or "herdr agent start failed").strip()
         die(f"split ok pane={pane_id}; agent start failed: {err}. Retry: spawn-reviewer --run-id {run_id} --pane {pane_id}")
 
@@ -820,51 +983,33 @@ def cmd_spawn_reviewer(args: argparse.Namespace) -> None:
     except json.JSONDecodeError:
         start = {"stdout": start_proc.stdout}
 
-    rename = herdr("pane", "rename", pane_id, f"review:{run_id}")
+    rename = herdr("pane", "rename", pane_id, review_label(run_id))
     prompt_proc = herdr("agent", "prompt", pane_id, prompt)
     if prompt_proc.returncode != 0:
-        meta.update(
-            {
-                "implementer_pane": self_pane,
-                "reviewer_pane": pane_id,
-                "thinking": thinking,
-                "provider": provider,
-                "model": model,
-            }
-        )
-        write_meta(run_id, meta)
+        record_pane(pane_id, reviewing=False)
         die(
             (prompt_proc.stderr or prompt_proc.stdout or "herdr agent prompt failed").strip()
             + f" (pane={pane_id})"
         )
 
-    meta.update(
-        {
-            "implementer_pane": self_pane,
-            "reviewer_pane": pane_id,
-            "thinking": thinking,
-            "provider": provider,
-            "model": model,
-        }
-    )
-    write_meta(run_id, meta)
+    record_pane(pane_id)
     write_status(run_id, phase="reviewing", verdict=None)
 
-    emit(
-        {
-            "ok": True,
-            "run_id": run_id,
-            "pane_id": pane_id,
-            "self_pane": self_pane,
-            "thinking": thinking,
-            "provider": provider,
-            "model": model,
-            "reason": resolved.get("reason"),
-            "agent_name": agent_name,
-            "start": start,
-            "rename_ok": rename.returncode == 0,
-        }
-    )
+    return {
+        "ok": True,
+        "run_id": run_id,
+        "pane_id": pane_id,
+        "self_pane": self_pane,
+        "thinking": thinking,
+        "provider": provider,
+        "model": model,
+        "reason": resolved.get("reason"),
+        "agent_name": agent_name,
+        "start": start,
+        "rename_ok": rename.returncode == 0,
+        "spawned": True,
+        "resumed": False,
+    }
 
 
 def parse_verdict_from_text(text: str) -> str | None:
@@ -917,22 +1062,31 @@ def cmd_pickup(args: argparse.Namespace) -> None:
 
 
 def cmd_wait_verdict(args: argparse.Namespace) -> None:
+    emit(wait_verdict(args.run_id, pane=args.pane, timeout_ms=args.timeout_ms, keep=args.keep))
+
+
+def wait_verdict(
+    run_id: str,
+    *,
+    pane: str | None = None,
+    timeout_ms: int | None = None,
+    keep: list[str] | None = None,
+) -> dict[str, Any]:
     require_herdr()
-    run_id = args.run_id
     snap = inspect_run(run_id)
     if snap.get("verdict") in ("LGTM", "BLOCKED"):
-        emit(
-            {
-                "ok": True,
-                "run_id": run_id,
-                "pane_id": (snap.get("reviewer") or {}).get("id"),
-                "verdict": snap["verdict"],
-                "already_done": True,
-            }
-        )
-        return
+        persist_verdict(run_id, str(snap["verdict"]))
+        closed = close_helpers(run_id, keep=keep)
+        return {
+            "ok": True,
+            "run_id": run_id,
+            "pane_id": (snap.get("reviewer") or {}).get("id"),
+            "verdict": snap["verdict"],
+            "already_done": True,
+            **closed,
+        }
     meta = read_meta(run_id)
-    pane_id = args.pane or meta.get("reviewer_pane")
+    pane_id = pane or resolve_reviewer_pane(run_id, meta)
     if not pane_id:
         die("no reviewer pane on this run — spawn-reviewer first")
 
@@ -945,17 +1099,10 @@ def cmd_wait_verdict(args: argparse.Namespace) -> None:
         "--source",
         "recent-unwrapped",
     ]
-    if args.timeout_ms is not None:
-        wait_args.extend(["--timeout", str(args.timeout_ms)])
+    if timeout_ms is not None:
+        wait_args.extend(["--timeout", str(timeout_ms)])
 
     proc = herdr(*wait_args)
-    if proc.returncode != 0:
-        write_status(run_id, phase="timeout", verdict="timeout")
-        die(
-            (proc.stderr or proc.stdout or "wait-output timed out or failed").strip(),
-            code=1,
-        )
-
     read = herdr(
         "pane",
         "read",
@@ -966,17 +1113,80 @@ def cmd_wait_verdict(args: argparse.Namespace) -> None:
         "80",
     )
     snapshot = read.stdout or ""
-    verdict = parse_verdict_from_text(snapshot) or parse_verdict_from_text(proc.stdout or "")
-    if verdict is None:
-        die("wait matched but could not parse AUTO_PLAN_VERDICT from pane output")
-
-    write_status(run_id, phase="lgtm" if verdict == "LGTM" else "blocked", verdict=verdict)
-    emit(
-        {
+    verdict = (
+        parse_verdict_from_text(snapshot)
+        or parse_verdict_from_text(proc.stdout or "")
+        or pane_verdict(pane_id)
+    )
+    if verdict in ("LGTM", "BLOCKED"):
+        persist_verdict(run_id, verdict)
+        closed = close_helpers(run_id, keep=keep)
+        return {
             "ok": True,
             "run_id": run_id,
             "pane_id": pane_id,
             "verdict": verdict,
+            "already_done": False,
+            **closed,
+        }
+
+    if proc.returncode != 0:
+        write_status(run_id, phase="waiting", last_error="wait-output timed out or failed")
+        if not pane_info(pane_id).get("alive"):
+            die(
+                f"reviewer pane {pane_id} gone without a verdict. Retry spawn-reviewer --run-id {run_id}."
+            )
+        die(
+            (proc.stderr or proc.stdout or "wait-output timed out or failed").strip(),
+            code=1,
+        )
+    die("wait matched but could not parse AUTO_PLAN_VERDICT from pane output")
+    raise AssertionError("unreachable")
+
+
+def cmd_finish(args: argparse.Namespace) -> None:
+    run_id = args.run_id
+    snap = inspect_run(run_id)
+    if not snap.get("ok"):
+        die(str(snap.get("error") or f"missing run {run_id}"))
+    if snap.get("verdict") in ("LGTM", "BLOCKED"):
+        persist_verdict(run_id, str(snap["verdict"]))
+    closed = close_helpers(run_id, keep=args.keep, dry_run=bool(args.dry_run))
+    emit(
+        {
+            "ok": True,
+            "run_id": run_id,
+            "verdict": snap.get("verdict"),
+            "implementer_next": snap.get("implementer_next"),
+            **closed,
+        }
+    )
+
+
+def cmd_review(args: argparse.Namespace) -> None:
+    spawned = spawn_reviewer(args)
+    if spawned.get("dry_run"):
+        emit({"ok": True, "run_id": args.run_id, "spawned": spawned})
+        return
+    waited = wait_verdict(
+        args.run_id,
+        pane=getattr(args, "pane", None) or spawned.get("pane_id"),
+        timeout_ms=getattr(args, "timeout_ms", None),
+        keep=getattr(args, "keep", None),
+    )
+    emit(
+        {
+            "ok": True,
+            "run_id": args.run_id,
+            "verdict": waited.get("verdict"),
+            "pane_id": waited.get("pane_id"),
+            "spawned": spawned.get("spawned"),
+            "resumed": spawned.get("resumed"),
+            "already_done": waited.get("already_done"),
+            "closed": waited.get("closed"),
+            "skipped": waited.get("skipped"),
+            "kept": waited.get("kept"),
+            "thinking": spawned.get("thinking") or waited.get("thinking"),
         }
     )
 
@@ -1021,7 +1231,41 @@ def build_parser() -> argparse.ArgumentParser:
     wait.add_argument("--run-id", required=True)
     wait.add_argument("--pane")
     wait.add_argument("--timeout-ms", type=int)
+    wait.add_argument(
+        "--keep",
+        action="append",
+        default=None,
+        help="Extra pane ids that must never be closed (implementer pane is always kept)",
+    )
     wait.set_defaults(func=cmd_wait_verdict)
+
+    finish = sub.add_parser("finish")
+    finish.add_argument("--run-id", required=True)
+    finish.add_argument("--dry-run", action="store_true")
+    finish.add_argument(
+        "--keep",
+        action="append",
+        default=None,
+        help="Extra pane ids that must never be closed (implementer pane is always kept)",
+    )
+    finish.set_defaults(func=cmd_finish)
+
+    review = sub.add_parser("review")
+    review.add_argument("--run-id", required=True)
+    review.add_argument("--cwd")
+    review.add_argument("--provider")
+    review.add_argument("--model")
+    review.add_argument("--self-pane")
+    review.add_argument("--pane", help="Reuse an existing shell pane; skip split")
+    review.add_argument("--dry-run", action="store_true")
+    review.add_argument("--timeout-ms", type=int)
+    review.add_argument(
+        "--keep",
+        action="append",
+        default=None,
+        help="Extra pane ids that must never be closed (implementer pane is always kept)",
+    )
+    review.set_defaults(func=cmd_review)
 
     return parser
 

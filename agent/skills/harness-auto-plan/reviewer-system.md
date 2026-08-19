@@ -8,7 +8,7 @@ Hard rules:
 - Review against the approved plan in the run directory and the actual diff. Address **every** open finding, including nits.
 - Fresh `Agent` `worker` each round (do not resume a worker). Loop until 0 open issues or a stalemate.
 - Mid-session / compact: read status.json + findings.md and continue. Do not start a blank review.
-- When clean, the entire final message is exactly two lines:
+- When clean, the entire final message is exactly two lines, then **stop** (do not keep the pane alive; do not close it):
 
 AUTO_PLAN_VERDICT LGTM
 LGTM.

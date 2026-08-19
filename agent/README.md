@@ -209,8 +209,9 @@ recipes in the diffing skill.
 
 Opt-in `/auto-plan` (skill `harness-auto-plan`) implements first, then spawns
 a reviewer pi via `herdr agent start --kind pi` and waits on
-`AUTO_PLAN_VERDICT LGTM|BLOCKED`. `pickup` resumes from the next unfinished
-step; `spawn-reviewer` refuses until there is a reviewable diff.
+`AUTO_PLAN_VERDICT LGTM|BLOCKED`. After a verdict it persists then closes
+helper panes (never the implementer pane). `pickup` resumes from the next
+unfinished step; `spawn-reviewer` refuses until there is a reviewable diff.
 
 ## Day-to-day
 

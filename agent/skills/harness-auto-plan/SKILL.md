@@ -16,7 +16,7 @@ Not the default. `/plan`, `/implement`, and `/review` stay human-gated. Run this
 
 Requires `HERDR_ENV=1`. If it is not `1`, stop: this command needs herdr. Tell the user to use `/implement` + `/review` instead.
 
-Drive herdr **only** through `scripts/auto-plan.py` below. Do not improvise `pane split` / `pane run` / `agent start`.
+Drive herdr **only** through `scripts/auto-plan.py` below. Do not improvise `pane split` / `pane run` / `pane close` / `agent start`.
 
 ## Pickup (always first)
 
@@ -35,9 +35,9 @@ Always pass `--task` on `/auto-plan <what>` so pickup does not resume a leftover
 | `explore-or-plan` | Explore if needed, draft/submit plan | implement, spawn |
 | `await-plan` | Await the **existing** plan id | new submit, spawn |
 | `implement` | Implement the approved `plan.md` | re-plan, spawn |
-| `spawn-reviewer` | `spawn-reviewer` (idempotent) then `wait-verdict` | re-implement |
-| `wait-verdict` | `wait-verdict` | second reviewer pane |
-| `report` | Tell the user `verdict` | anything else |
+| `spawn-reviewer` | `review` (spawn+wait+close helpers) | re-implement |
+| `wait-verdict` | `wait-verdict` or `review` | second reviewer pane |
+| `report` | `finish` (idempotent), then tell the user `verdict` | anything else |
 
 | `reviewer_next` | Do this |
 | --- | --- |
@@ -52,7 +52,7 @@ Session overlay (script cannot see the chat): if pickup says `init` but this con
 
 | Role | Who | Owns |
 | ------ | ------ | ------ |
-| **Implementer** | This pane (the lead that took the task) | Explore, diffing plan, implement the approved plan, spawn reviewer, wait for the verdict |
+| **Implementer** | This pane (the lead that took the task) | Explore, diffing plan, implement the approved plan, `review` / `wait-verdict` / `finish`. This pane stays open. |
 | **Reviewer** | New herdr split, full pi leader at xhigh (else high) | Review, write findings, spawn workers, re-verify including nits, print `LGTM.` or `BLOCKED` |
 | **Worker** | `Agent` `subagent_type: worker` | Implement open findings. Depth 1. Fresh worker each round — do not resume |
 
@@ -72,9 +72,13 @@ python3 <script> init --cwd <consumer> --task "<the task>"   # reuses unfinished
 python3 <script> thinking [--provider P] [--model M]
 python3 <script> spawn-reviewer --run-id <id> [--provider P] [--model M] [--pane <existing>]
 python3 <script> wait-verdict --run-id <id> [--timeout-ms N]
+python3 <script> review --run-id <id>   # spawn-reviewer + wait-verdict + close helpers
+python3 <script> finish --run-id <id>   # close leftover helpers; never the implementer pane
 ```
 
 `spawn-reviewer` **refuses** unless pickup would return `spawn-reviewer` or `wait-verdict` (approved plan implemented, `implementer-summary.md` written, consumer tree has a reviewable diff vs the run's `base_sha`). An empty working tree is not reviewable. When allowed, it splits the current pane (`HERDR_PANE_ID`) to the right with `--no-focus`, starts `pi` via `herdr agent start --kind pi`, then `herdr agent prompt`s the reviewer brief. It picks `--thinking xhigh` when the model map has a non-null `xhigh`, otherwise `high`. It sets `PI_THINKING_ROUTER=0` on the new pane so the word "review" cannot drop thinking. If `agent start` fails after the split, retry with `--pane <id>` — do not split again.
+
+`wait-verdict` / `review` persist `AUTO_PLAN_VERDICT` to `status.json` **before** closing anything. They then close helper panes this run spawned (the reviewer, plus any `review:<run-id>` pane). They **never** close the implementer pane or `HERDR_PANE_ID`. `finish` is the same close, idempotent — use it on `report` if `finish_needed`.
 
 Pass this session's `--provider` / `--model` when you know them (TUI footer). Otherwise the script uses `settings.json`.
 
@@ -88,9 +92,9 @@ Pass this session's `--provider` / `--model` when you know them (TUI footer). Ot
 3. `explore-or-plan`: explore if needed (`Agent` `explorer`, one spawn). Draft the plan, submit to diffing, **print the plan URL**. Write the id to `<dir>/plan-id.txt` immediately, then await, obey `diffing-plan-review`. Only `approved` continues. Copy the approved body to `<dir>/plan.md`.
 4. `await-plan`: await the existing plan id. Do not submit another plan.
 5. `implement`: implement the approved plan yourself (substantive). Chores (`tests`, `lint`, …) still go to `Agent`. Write `<dir>/implementer-summary.md` when done (what changed, files, verification, leftover risk). Pickup must now say `spawn-reviewer` (reviewable diff present) before the next step.
-6. `spawn-reviewer`: only when pickup says this. Call the script (idempotent: live working reviewer → no second pane). Print `pane_id` and `thinking`. Then `wait-verdict`. If the script refuses, you skipped implement — go back and implement.
-7. `wait-verdict`: omit timeout unless the user set one. Safe to retry — it matches output already on screen, including a verdict printed before you waited.
-8. `report`: tell the user `verdict` (`LGTM` or `BLOCKED`). Do **not** hand to human `/review` unless they ask.
+6. `spawn-reviewer`: only when pickup says this. Prefer `review` (spawn + wait + close helpers). Live working reviewer → no second pane. Print `pane_id` and `thinking`. If the script refuses, you skipped implement — go back and implement.
+7. `wait-verdict`: omit timeout unless the user set one. Safe to retry — it matches output already on screen, persists the verdict, then closes helpers. Never close this pane.
+8. `report`: `finish` if `finish_needed` (leftover helpers). Tell the user `verdict` (`LGTM` or `BLOCKED`). Do **not** close this pane. Do **not** hand to human `/review` unless they ask.
 
 After any compact or user "continue", pickup again before acting.
 
@@ -110,7 +114,7 @@ AUTO_PLAN_VERDICT LGTM
 LGTM.
 ```
 
-   Stop. No extra prose.
+   Stop. No extra prose. Do not close panes — the implementer script does.
 
 3. If any open issue (nits included): `Agent` `subagent_type: worker` with a brief that includes the consumer cwd, the absolute findings path, and:
 
