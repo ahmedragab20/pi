@@ -207,9 +207,10 @@ live in the `diffing` skill's "herdr coordination" section. Never edit the
 herdr team's own skill (`~/.agents/skills/herdr/`) — keep diffing-specific
 recipes in the diffing skill.
 
-Opt-in `/auto-plan` (skill `harness-auto-plan`) spawns a reviewer pi via
-`herdr agent start --kind pi` and waits on `AUTO_PLAN_VERDICT LGTM|BLOCKED`.
-`pickup` resumes mid-session from the next unfinished step.
+Opt-in `/auto-plan` (skill `harness-auto-plan`) implements first, then spawns
+a reviewer pi via `herdr agent start --kind pi` and waits on
+`AUTO_PLAN_VERDICT LGTM|BLOCKED`. `pickup` resumes from the next unfinished
+step; `spawn-reviewer` refuses until there is a reviewable diff.
 
 ## Day-to-day
 

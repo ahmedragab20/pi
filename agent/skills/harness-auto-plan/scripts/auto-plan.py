@@ -27,10 +27,10 @@ VERDICT_REGEX = r"AUTO_PLAN_VERDICT (LGTM|BLOCKED)"
 
 IMPLEMENTER_NEXT_HELP = {
     "init": "No run yet. Call init, then continue.",
-    "explore-or-plan": "Explore if needed, then draft/submit the plan. Do not implement.",
-    "await-plan": "Plan already submitted. Await that plan id. Do not submit a new plan.",
-    "implement": "Plan is approved. Implement it. Do not re-plan or spawn the reviewer yet.",
-    "spawn-reviewer": "Implementation is done. spawn-reviewer (idempotent), then wait-verdict.",
+    "explore-or-plan": "Explore if needed, then draft/submit the plan. Do not implement or spawn a reviewer.",
+    "await-plan": "Plan already submitted. Await that plan id. Do not submit a new plan or spawn a reviewer.",
+    "implement": "Plan is approved. Implement it now. Do not re-plan. Do not spawn a reviewer until implementation is done and the consumer tree has a reviewable diff.",
+    "spawn-reviewer": "Implementation is done and there is a reviewable diff. spawn-reviewer (idempotent), then wait-verdict.",
     "wait-verdict": "Reviewer is in flight. wait-verdict. Do not spawn another reviewer.",
     "report": "Verdict already recorded. Report it. Do not continue the loop.",
 }
@@ -139,6 +139,108 @@ def nonempty(path: Path) -> bool:
     return path.is_file() and bool(path.read_text().strip())
 
 
+def normalize_task(text: str | None) -> str:
+    return " ".join((text or "").strip().lower().split())
+
+
+def read_task(run_id: str) -> str:
+    path = run_dir(run_id) / "task.md"
+    if not path.is_file():
+        return ""
+    return path.read_text()
+
+
+def tasks_equivalent(a: str | None, b: str | None) -> bool:
+    na, nb = normalize_task(a), normalize_task(b)
+    if not na or not nb:
+        return False
+    return na == nb
+
+
+def git_run(cwd: str, *args: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(["git", "-C", cwd, *args], capture_output=True, text=True)
+
+
+def git_head_sha(cwd: str) -> str | None:
+    proc = git_run(cwd, "rev-parse", "HEAD")
+    sha = (proc.stdout or "").strip()
+    return sha if proc.returncode == 0 and sha else None
+
+
+def git_reviewable(cwd: str | None, base_sha: str | None) -> dict[str, Any]:
+    """Whether the consumer tree has anything a reviewer could inspect.
+
+    Reviewable if the working tree is dirty, HEAD moved off base_sha, or
+    (when base_sha is missing, older runs) there are commits not in upstream.
+    A clean tree at the run's base is not reviewable — implement first.
+    """
+    out: dict[str, Any] = {
+        "reviewable": False,
+        "dirty": False,
+        "head_moved": False,
+        "ahead": 0,
+        "base_sha": base_sha,
+        "head": None,
+        "upstream": None,
+        "reason": "no cwd",
+    }
+    if not cwd:
+        return out
+    try:
+        resolved = str(Path(cwd).expanduser().resolve())
+    except OSError:
+        out["reason"] = "cwd unreadable"
+        return out
+    if not Path(resolved).is_dir():
+        out["reason"] = "cwd missing"
+        return out
+    inside = git_run(resolved, "rev-parse", "--is-inside-work-tree")
+    if inside.returncode != 0 or (inside.stdout or "").strip() != "true":
+        out["reason"] = "not a git repo"
+        return out
+    head = git_head_sha(resolved)
+    out["head"] = head
+    porcelain = git_run(resolved, "status", "--porcelain")
+    out["dirty"] = bool((porcelain.stdout or "").strip())
+    if base_sha and head and head != base_sha:
+        out["head_moved"] = True
+    diff_vs_base = False
+    if base_sha:
+        d = git_run(resolved, "diff", "--stat", base_sha)
+        if d.returncode == 0 and (d.stdout or "").strip():
+            diff_vs_base = True
+        cached = git_run(resolved, "diff", "--cached", "--stat")
+        if (cached.stdout or "").strip():
+            diff_vs_base = True
+    upstream = None
+    up = git_run(resolved, "rev-parse", "--abbrev-ref", "@{upstream}")
+    if up.returncode == 0 and (up.stdout or "").strip():
+        upstream = (up.stdout or "").strip()
+    else:
+        for cand in ("origin/HEAD", "origin/main", "origin/master", "main", "master"):
+            verify = git_run(resolved, "rev-parse", "--verify", cand)
+            if verify.returncode == 0:
+                upstream = cand
+                break
+    out["upstream"] = upstream
+    if upstream and head:
+        counted = git_run(resolved, "rev-list", "--count", f"{upstream}..HEAD")
+        if counted.returncode == 0:
+            try:
+                out["ahead"] = int((counted.stdout or "0").strip() or "0")
+            except ValueError:
+                out["ahead"] = 0
+    if base_sha:
+        out["reviewable"] = bool(out["dirty"] or out["head_moved"] or diff_vs_base)
+        out["reason"] = "diff vs base" if out["reviewable"] else "no diff vs base_sha"
+    else:
+        out["reviewable"] = bool(out["dirty"] or out["ahead"] > 0)
+        out["reason"] = (
+            "dirty or ahead of upstream" if out["reviewable"] else "clean tree, no base_sha"
+        )
+    return out
+
+
 def count_open_findings(text: str) -> int:
     """Count issues whose Status field is currently open."""
     n = 0
@@ -237,13 +339,16 @@ def inspect_run(run_id: str) -> dict[str, Any]:
     if stored_verdict not in ("LGTM", "BLOCKED"):
         stored_verdict = None
     verdict = screen_verdict or stored_verdict
+    base_sha = meta.get("base_sha") if isinstance(meta.get("base_sha"), str) else None
+    git = git_reviewable(str(meta.get("cwd") or ""), base_sha)
+    reviewable = bool(git.get("reviewable"))
 
     completed: list[str] = ["init"]
     if files["plan_id"]:
         completed.append("plan-submitted")
     if files["plan"]:
         completed.append("plan-approved")
-    if files["implementer_summary"]:
+    if files["implementer_summary"] and reviewable:
         completed.append("implemented")
     if reviewer_pane:
         completed.append("reviewer-spawned")
@@ -265,7 +370,7 @@ def inspect_run(run_id: str) -> dict[str, Any]:
         implementer_next = "report"
     elif pi_working:
         implementer_next = "wait-verdict"
-    elif files["implementer_summary"]:
+    elif files["implementer_summary"] and reviewable:
         implementer_next = "spawn-reviewer"
     elif files["plan"]:
         implementer_next = "implement"
@@ -284,6 +389,12 @@ def inspect_run(run_id: str) -> dict[str, Any]:
         reviewer_next = "re-verify"
 
     phase = status.get("phase") or implementer_next
+    implementer_help = IMPLEMENTER_NEXT_HELP[implementer_next]
+    if implementer_next == "implement" and files["implementer_summary"] and not reviewable:
+        implementer_help = (
+            "implementer-summary.md exists but the consumer tree has no reviewable diff. "
+            "Implement the approved plan first. Do not spawn a reviewer."
+        )
     return {
         "ok": True,
         "run_id": run_id,
@@ -292,10 +403,12 @@ def inspect_run(run_id: str) -> dict[str, Any]:
         "phase": phase,
         "completed": completed,
         "implementer_next": implementer_next,
-        "implementer_help": IMPLEMENTER_NEXT_HELP[implementer_next],
+        "implementer_help": implementer_help,
         "reviewer_next": reviewer_next,
         "reviewer_help": REVIEWER_NEXT_HELP[reviewer_next],
         "files": files,
+        "reviewable": reviewable,
+        "git": git,
         "open_findings": open_findings,
         "round": status.get("round") or 0,
         "verdict": verdict,
@@ -308,6 +421,7 @@ def inspect_run(run_id: str) -> dict[str, Any]:
             "thinking": meta.get("thinking"),
             "provider": meta.get("provider"),
             "model": meta.get("model"),
+            "base_sha": base_sha,
         },
     }
 
@@ -339,11 +453,19 @@ def list_runs_for_cwd(cwd: str | None) -> list[dict[str, Any]]:
     return found
 
 
-def pick_run(cwd: str | None, run_id: str | None) -> dict[str, Any] | None:
+def pick_run(
+    cwd: str | None, run_id: str | None, task: str | None = None
+) -> dict[str, Any] | None:
     if run_id:
         snap = inspect_run(run_id)
         return snap if snap.get("ok") else None
     runs = list_runs_for_cwd(cwd)
+    if task:
+        runs = [
+            r
+            for r in runs
+            if tasks_equivalent(task, read_task(str(r.get("run_id") or "")))
+        ]
     if not runs:
         return None
     unfinished = [r for r in runs if r.get("implementer_next") != "report"]
@@ -431,7 +553,7 @@ def cmd_init(args: argparse.Namespace) -> None:
     task = task.strip()
 
     if not args.new:
-        existing = pick_run(cwd, None)
+        existing = pick_run(cwd, None, task=task or None)
         if existing and existing.get("implementer_next") != "report":
             run_id = str(existing["run_id"])
             directory = run_dir(run_id)
@@ -457,6 +579,7 @@ def cmd_init(args: argparse.Namespace) -> None:
         "thinking": None,
         "provider": None,
         "model": None,
+        "base_sha": git_head_sha(cwd),
     }
     write_meta(run_id, meta)
     write_status(run_id, phase="planning", round=0, verdict=None)
@@ -511,8 +634,21 @@ def pane_id_from_split(data: dict[str, Any]) -> str:
 
 
 def cmd_spawn_reviewer(args: argparse.Namespace) -> None:
-    require_herdr()
     run_id = args.run_id
+    snap = inspect_run(run_id)
+    if not snap.get("ok"):
+        die(str(snap.get("error") or f"missing run {run_id}"))
+    if snap.get("implementer_next") == "report":
+        emit({**snap, "spawned": False, "reason": "verdict already recorded"})
+        return
+    nxt = snap.get("implementer_next")
+    if nxt not in ("spawn-reviewer", "wait-verdict"):
+        die(
+            f"refusing spawn-reviewer: implementer_next is {nxt}. "
+            f"{snap.get('implementer_help')} "
+            "Do not spawn a reviewer before implementation is complete."
+        )
+    require_herdr()
     meta = read_meta(run_id)
     cwd = args.cwd or meta.get("cwd") or os.getcwd()
     resolved = thinking_level(args.provider, args.model)
@@ -521,10 +657,6 @@ def cmd_spawn_reviewer(args: argparse.Namespace) -> None:
     model = resolved.get("model")
     self_pane = args.self_pane or self_pane_id()
     system_path = expand_reviewer_system(run_id)
-    snap = inspect_run(run_id)
-    if snap.get("implementer_next") == "report":
-        emit({**snap, "spawned": False, "reason": "verdict already recorded"})
-        return
     existing_pane = args.pane or meta.get("reviewer_pane")
     existing = pane_info(existing_pane)
     resume = bool(snap.get("files", {}).get("findings")) or snap.get("reviewer_next") != "first-review"
@@ -755,7 +887,7 @@ def cmd_pickup(args: argparse.Namespace) -> None:
         cwd = str(Path(args.cwd).expanduser().resolve())
     elif not args.run_id:
         cwd = os.getcwd()
-    snap = pick_run(cwd, args.run_id)
+    snap = pick_run(cwd, args.run_id, task=args.task or None)
     if snap is None:
         emit(
             {
@@ -863,6 +995,11 @@ def build_parser() -> argparse.ArgumentParser:
     pickup = sub.add_parser("pickup")
     pickup.add_argument("--cwd")
     pickup.add_argument("--run-id")
+    pickup.add_argument(
+        "--task",
+        default="",
+        help="Only resume a run whose task.md matches. A different task starts init, not spawn-reviewer.",
+    )
     pickup.set_defaults(func=cmd_pickup)
 
     thinking = sub.add_parser("thinking")
