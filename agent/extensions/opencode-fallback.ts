@@ -36,6 +36,10 @@ export function resetProviderExhaustion(): void {
 	exhausted.clear();
 }
 
+export default function opencodeFallbackLib() {
+	// Shared module discovered as `extensions/*.ts`; not a real extension.
+}
+
 /** Map an error string to the OpenCode bill that ran out. */
 export function markExhaustedFromError(text: string): void {
 	if (!isUsageLimitError(text)) return;
