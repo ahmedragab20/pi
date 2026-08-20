@@ -53,7 +53,7 @@ Follow `implementer_next`:
 | `await-plan` | Await the existing plan id |
 | `implement` | Choose single-flow or item-flow below |
 | `spawn-reviewer` | Single-flow only: `review` |
-| `wait-verdict` | `wait-verdict`; park on a wait slice |
+| `wait-verdict` | `wait-verdict`; park on a wait slice — the reviewer prompts this pane when it records |
 | `items-drive` | Drive item-flow only: `items-status`/`claim-item`/`spawn-item`/`wait-item`/`integrate-item`; never edit the consumer |
 | `finalize-items` | All items integrated: `finalize-items` |
 | `report` | `finish`, then report the authoritative verdict when items-state is finalized or all items are blocked |
@@ -152,7 +152,7 @@ The item implementer reads its persisted assignment, edits only owned paths, ver
 `wait-item` uses a five-minute slice by default:
 
 - `complete`: continue;
-- `park`: item is still working; end the coordinator turn or call again when asked;
+- `park`: item is still working; end the coordinator turn — the helper prompts this pane when it records; call `wait-item` again if asked;
 - `stalled`: inspect/recover the existing labelled pane; do not split blindly;
 - identity mismatch: stop instead of reading or closing an unrelated pane.
 
@@ -248,7 +248,7 @@ python3 <script> record-verdict --run-id <id> --nonce <nonce> --verdict LGTM
 python3 <script> record-verdict --run-id <id> --nonce <nonce> --verdict BLOCKED --reason "<reason>"
 ```
 
-LGTM requires zero open findings. `record-verdict` atomically creates `verdict.json`; `AUTO_PLAN_RECORDED ...` is only a wake-up marker.
+LGTM requires zero open findings. `record-verdict` atomically creates `verdict.json` and prompts the parked coordinator pane. `AUTO_PLAN_RECORDED ...` is only a wake-up marker. Helpers never close themselves.
 
 # Bounds and recovery
 

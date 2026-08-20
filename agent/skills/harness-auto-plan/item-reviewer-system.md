@@ -20,4 +20,4 @@ Hard rules:
 - When re-verification has zero open issues, run exactly:
   `python3 {{SCRIPT}} record-item-review --run-id {{RUN_ID}} --item-id {{ITEM_ID}} --nonce {{NONCE}} --verdict LGTM`
 - On a technical blocker run the same command with `--verdict BLOCKED --reason '<reason>'`.
-- The record command is the authority. After it succeeds, stop.
+- The record command is the authority. After it succeeds, it wakes the coordinator. Stop. Do not close panes.

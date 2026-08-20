@@ -414,6 +414,11 @@ def main(argv):
         save(state)
         ok({"type": "agent_prompt", "accepted": True})
         return
+    if argv[:2] == ["notification", "show"]:
+        state.setdefault("notification_calls", []).append(argv)
+        save(state)
+        ok({"type": "notification_show", "shown": True, "reason": "shown"})
+        return
     fail("unhandled: " + " ".join(argv))
 
 
@@ -774,11 +779,14 @@ class NewVerdictProtocolTests(unittest.TestCase):
         return json.loads(self.state_path.read_text())
 
     def cli(self, *args: str) -> subprocess.CompletedProcess[str]:
+        return self.cli_from(self.impl, *args)
+
+    def cli_from(self, pane_id: str, *args: str) -> subprocess.CompletedProcess[str]:
         env = os.environ.copy()
         env["AUTO_PLAN_HOME"] = str(self.home)
         env["AUTO_PLAN_FAKE_STATE"] = str(self.state_path)
         env["HERDR_ENV"] = "1"
-        env["HERDR_PANE_ID"] = self.impl
+        env["HERDR_PANE_ID"] = pane_id
         env["PATH"] = f"{self.bindir}:{env.get('PATH', '')}"
         return subprocess.run(
             [sys.executable, str(SCRIPT), *args],
@@ -838,6 +846,75 @@ class NewVerdictProtocolTests(unittest.TestCase):
         got = payload(proc)
         self.assertFalse(got["ok"])
         self.assertIn("open", got["error"].lower())
+
+    def test_record_verdict_from_helper_prompts_idle_leader_and_does_not_close(
+        self,
+    ) -> None:
+        run_id = self.fresh_run()
+        (self.home / run_id / "findings.md").write_text(ZERO_OPEN_FINDINGS)
+        nonce = self.nonce(run_id, self.home)
+        cp = self.cli(
+            "review-checkpoint", "--run-id", run_id, "--nonce", nonce
+        )
+        self.assertEqual(cp.returncode, 0, cp.stderr + cp.stdout)
+        self.assertTrue(payload(cp)["ok"], cp.stderr + cp.stdout)
+        state = self.read_state()
+        # Screenshot case: coordinator parked after wait-verdict, reviewer records.
+        state["panes"][self.impl]["agent_status"] = "idle"
+        state["panes"][self.rev]["agent_status"] = "working"
+        self.write_state(state)
+        rec = self.cli_from(
+            self.rev,
+            "record-verdict",
+            "--run-id",
+            run_id,
+            "--verdict",
+            "LGTM",
+            "--nonce",
+            nonce,
+        )
+        self.assertEqual(rec.returncode, 0, rec.stderr + rec.stdout)
+        got = payload(rec)
+        self.assertTrue(got["ok"], got)
+        self.assertEqual(got["verdict"], "LGTM")
+        leader = got.get("leader") or {}
+        self.assertTrue(leader.get("prompted"), got)
+        self.assertEqual(leader.get("pane_id"), self.impl)
+        prompts = self.read_state().get("agent_prompt_calls") or []
+        self.assertTrue(prompts, "helper must prompt the session leader")
+        last = prompts[-1]
+        self.assertEqual(last[:3], ["agent", "prompt", self.impl])
+        self.assertIn("--wait", last)
+        self.assertIn("working", last)
+        self.assertIn(f"AUTO_PLAN_RECORDED {run_id} LGTM", last[3])
+        after = self.read_state()
+        self.assertFalse(after["panes"][self.rev].get("closed"))
+        self.assertFalse(after["panes"][self.impl].get("closed"))
+
+    def test_record_verdict_from_leader_pane_does_not_reprompt_self(self) -> None:
+        run_id = self.fresh_run()
+        (self.home / run_id / "findings.md").write_text(ZERO_OPEN_FINDINGS)
+        nonce = self.nonce(run_id, self.home)
+        cp = self.cli(
+            "review-checkpoint", "--run-id", run_id, "--nonce", nonce
+        )
+        self.assertEqual(cp.returncode, 0, cp.stderr + cp.stdout)
+        rec = self.cli(
+            "record-verdict",
+            "--run-id",
+            run_id,
+            "--verdict",
+            "LGTM",
+            "--nonce",
+            nonce,
+        )
+        self.assertEqual(rec.returncode, 0, rec.stderr + rec.stdout)
+        got = payload(rec)
+        self.assertTrue(got["ok"], got)
+        leader = got.get("leader") or {}
+        self.assertFalse(leader.get("prompted"))
+        self.assertEqual(leader.get("reason"), "already on leader pane")
+        self.assertFalse(self.read_state().get("agent_prompt_calls"))
 
     def test_record_verdict_valid_zero_open_writes_authoritative_pickup_finish(
         self,

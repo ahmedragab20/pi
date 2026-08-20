@@ -215,9 +215,11 @@ reviewer sessions per item, serial integration, and a fast-forward `finalize`
 that only touches a clean unchanged consumer checkout. Verdicts are
 authoritative files (`verdict.json`, item state) recorded with run/item
 nonces — console text is notification only. Waits are bounded slices that
-park; review loops stop at 0 open findings, no-progress, or round 6.
-`pickup` resumes from the next unfinished step; `spawn-reviewer` refuses
-until there is a reviewable diff.
+park; a recorded verdict prompts the parked coordinator so it can continue
+without a human `continue`. Helpers never close themselves — the coordinator
+closes leftover helper panes after consuming the verdict. Review loops stop
+at 0 open findings, no-progress, or round 6. `pickup` resumes from the next
+unfinished step; `spawn-reviewer` refuses until there is a reviewable diff.
 
 ## Day-to-day
 

@@ -17,4 +17,4 @@ Hard rules:
   - Clean: `record-verdict --run-id {{RUN_ID}} --nonce {{VERDICT_NONCE}} --verdict LGTM`
   - Stalemate/technical blocker: `record-verdict --run-id {{RUN_ID}} --nonce {{VERDICT_NONCE}} --verdict BLOCKED --reason "<why>"`
 
-- After a successful `record-verdict`, stop. Do not close panes — the implementer script owns cleanup.
+- After a successful `record-verdict`, stop. Do not close panes — the script wakes the implementer pane and that pane owns cleanup.

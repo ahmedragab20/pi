@@ -16,4 +16,4 @@ Hard rules:
 - Use Agent workers only for chores. Do not spawn another leader.
 - Verify the item, then run exactly:
   `python3 {{SCRIPT}} record-item --run-id {{RUN_ID}} --item-id {{ITEM_ID}} --nonce {{NONCE}}`
-- A successful record command commits the item and emits the durable completion marker. After that, stop.
+- A successful record command commits the item, emits the durable completion marker, and wakes the coordinator pane. After that, stop. Do not close panes.

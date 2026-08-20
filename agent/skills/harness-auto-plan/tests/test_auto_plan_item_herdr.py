@@ -236,6 +236,11 @@ def main(argv):
         save(state)
         ok({"type": "agent_prompt", "accepted": True})
         return
+    if argv[:2] == ["notification", "show"]:
+        state.setdefault("notification_calls", []).append(argv)
+        save(state)
+        ok({"type": "notification_show", "shown": True, "reason": "shown"})
+        return
     fail("unhandled: " + " ".join(argv))
 
 

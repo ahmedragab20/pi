@@ -53,7 +53,7 @@ IMPLEMENTER_NEXT_HELP = {
     "items-drive": "Item-flow is active. Drive items-status / claim-item / spawn-item / wait-item / integrate-item. Never edit the consumer checkout and never spawn-reviewer.",
     "finalize-items": "Every item is integrated. Call finalize-items. Do not implement on the consumer and do not spawn-reviewer.",
     "spawn-reviewer": "Implementation is done and there is a reviewable diff. review (spawn+wait+close helpers) or spawn-reviewer then wait-verdict.",
-    "wait-verdict": "Reviewer is in flight. wait-verdict (closes helpers after the verdict). Do not spawn another reviewer. Never close this pane.",
+    "wait-verdict": "Reviewer is in flight. wait-verdict (closes helpers after the verdict). Park on a wait slice — the reviewer prompts this pane when it records. Do not spawn another reviewer. Never close this pane.",
     "report": "Verdict recorded or item-flow finished. finish (idempotent; closes leftover helpers, never this pane), then tell the user the verdict.",
 }
 
@@ -561,6 +561,99 @@ def authoritative_verdict(run_id: str) -> dict[str, Any] | None:
     if doc.get("run_id") != run_id or doc.get("verdict") not in ("LGTM", "BLOCKED"):
         return None
     return doc
+
+
+def notify_session_leader(run_id: str, prompt: str) -> dict[str, Any]:
+    """Wake the parked coordinator pane. Helpers never close themselves."""
+    if os.environ.get("HERDR_ENV") != "1":
+        return {"ok": False, "prompted": False, "reason": "not in herdr"}
+    meta = load_json(run_dir(run_id) / "meta.json")
+    if not isinstance(meta, dict):
+        return {"ok": False, "prompted": False, "reason": "missing run"}
+    leader = str(meta.get("implementer_pane") or "").strip()
+    if not leader:
+        return {"ok": False, "prompted": False, "reason": "no implementer pane"}
+    self_id = str(os.environ.get("HERDR_PANE_ID") or "").strip()
+    if self_id and self_id == leader:
+        return {
+            "ok": True,
+            "prompted": False,
+            "pane_id": leader,
+            "reason": "already on leader pane",
+        }
+    info = pane_info(leader)
+    if not info.get("alive"):
+        return {
+            "ok": False,
+            "prompted": False,
+            "pane_id": leader,
+            "reason": "leader pane gone",
+        }
+    if info.get("agent_status") == "blocked":
+        _notify_leader_toast(run_id, prompt)
+        return {
+            "ok": False,
+            "prompted": False,
+            "pane_id": leader,
+            "reason": "leader blocked",
+            "agent_status": "blocked",
+        }
+    _notify_leader_toast(run_id, prompt)
+    try:
+        proc = herdr(
+            "agent",
+            "prompt",
+            leader,
+            prompt,
+            "--wait",
+            "--until",
+            "working",
+            "--timeout",
+            str(DEFAULT_PROMPT_TIMEOUT_MS),
+        )
+    except subprocess.TimeoutExpired:
+        append_event(
+            run_id, "leader-wake", ok=False, pane_id=leader, error="prompt timed out"
+        )
+        return {
+            "ok": False,
+            "prompted": False,
+            "pane_id": leader,
+            "reason": "leader prompt timed out",
+        }
+    if proc.returncode != 0:
+        err = (proc.stderr or proc.stdout or "agent prompt failed").strip()
+        append_event(run_id, "leader-wake", ok=False, pane_id=leader, error=err)
+        return {
+            "ok": False,
+            "prompted": False,
+            "pane_id": leader,
+            "reason": err,
+        }
+    append_event(run_id, "leader-wake", ok=True, pane_id=leader)
+    return {
+        "ok": True,
+        "prompted": True,
+        "pane_id": leader,
+        "agent_status": info.get("agent_status"),
+    }
+
+
+def _notify_leader_toast(run_id: str, prompt: str) -> None:
+    title = f"auto-plan {run_id}"
+    body = " ".join(prompt.split())[:240]
+    try:
+        herdr(
+            "notification",
+            "show",
+            title,
+            "--body",
+            body,
+            "--sound",
+            "done",
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return
 
 
 def persist_verdict(
@@ -1417,11 +1510,21 @@ def cmd_record_verdict(args: argparse.Namespace) -> None:
             }
         )
         return
+    marker = f"AUTO_PLAN_RECORDED {run_id} {recorded}"
+    leader = notify_session_leader(
+        run_id,
+        (
+            f"{marker}. pickup --run-id {run_id} and continue from implementer_next "
+            "(wait-verdict or finish). Do not spawn another reviewer. "
+            "Do not close this pane."
+        ),
+    )
     emit(
         {
             "ok": True,
             **doc,
-            "marker": f"AUTO_PLAN_RECORDED {run_id} {recorded}",
+            "marker": marker,
+            "leader": leader,
         }
     )
 
@@ -1998,7 +2101,20 @@ def cmd_claim_item(args: argparse.Namespace) -> None:
 
 
 def cmd_record_item(args: argparse.Namespace) -> None:
-    emit(item_scheduler.cmd_record_item(args))
+    result = item_scheduler.cmd_record_item(args)
+    if result.get("ok"):
+        marker = str(result.get("marker") or "").strip() or (
+            f"AUTO_PLAN_ITEM_RECORDED {args.run_id} {args.item_id} implemented"
+        )
+        result["leader"] = notify_session_leader(
+            args.run_id,
+            (
+                f"{marker}. pickup --run-id {args.run_id} and continue from "
+                "implementer_next (wait-item / spawn-item-reviewer / integrate-item). "
+                "Do not close this pane."
+            ),
+        )
+    emit(result)
 
 
 def cmd_item_review_checkpoint(args: argparse.Namespace) -> None:
@@ -2006,7 +2122,19 @@ def cmd_item_review_checkpoint(args: argparse.Namespace) -> None:
 
 
 def cmd_record_item_review(args: argparse.Namespace) -> None:
-    emit(item_scheduler.cmd_record_item_review(args))
+    result = item_scheduler.cmd_record_item_review(args)
+    if result.get("ok"):
+        marker = str(result.get("marker") or "").strip() or (
+            f"AUTO_PLAN_ITEM_REVIEWED {args.run_id} {args.item_id} {args.verdict}"
+        )
+        result["leader"] = notify_session_leader(
+            args.run_id,
+            (
+                f"{marker}. pickup --run-id {args.run_id} and continue from "
+                "implementer_next (wait-item / integrate-item). Do not close this pane."
+            ),
+        )
+    emit(result)
 
 
 def cmd_integrate_item(args: argparse.Namespace) -> None:
