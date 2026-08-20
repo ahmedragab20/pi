@@ -1,170 +1,288 @@
 ---
 name: harness-auto-plan
 description: >
-  Opt-in herdr+pi automated plan implementation. Draft a diffing plan, implement
-  after human approval, then spawn an independent reviewer leader in a herdr
-  split at thinking xhigh (high if the model has no xhigh) who loops a worker
-  until every finding including nits is fixed and prints LGTM. Use when the
-  user runs /auto-plan, asks for automated plan implementation, an auto
-  reviewer pane, or a herdr implement-then-review loop. Not the default
-  /plan, /implement, or /review flow.
+  Opt-in herdr+pi automated plan implementation. After human plan approval,
+  execute small plans in one lead or decompose large plans into dependency-aware,
+  worktree-isolated items handled by fresh implementer and reviewer sessions.
+  Use only for /auto-plan or an explicit herdr implementation loop request.
 ---
 
-# Opt-in auto-plan (herdr + pi)
+# Auto-plan v2: bounded, fresh, conflict-safe
 
-Not the default. `/plan`, `/implement`, and `/review` stay human-gated. Run this skill only when the user invoked `/auto-plan` or explicitly asked for this loop.
+`/auto-plan` is opt-in. Normal `/plan`, `/implement`, and `/review` remain human-gated.
 
-Requires `HERDR_ENV=1`. If it is not `1`, stop: this command needs herdr. Tell the user to use `/implement` + `/review` instead.
+Requires `HERDR_ENV=1`. Otherwise stop and suggest `/implement` + `/review`.
 
-Drive herdr **only** through `scripts/auto-plan.py` below. Do not improvise `pane split` / `pane run` / `pane close` / `agent start`.
+Drive herdr only through:
 
-## Pickup (always first)
-
-Mid-session, after compaction, or when `/auto-plan` is invoked on work already in flight: **do not restart**. Inspect, then do only the next unfinished step.
-
+```text
+~/.pi/agent/skills/harness-auto-plan/scripts/auto-plan.py
 ```
-python3 <script> pickup --cwd <consumer> --task "<the user request>"
+
+Every command emits JSON. Pane output is a notification channel, never state authority.
+
+## Invariants
+
+1. Pickup before every action, including after compaction or `continue`.
+2. Human-approved plan before product code.
+3. Large work uses immutable items, isolated worktrees, fresh implementers, and fresh item reviewers.
+4. Parallel items never own overlapping paths. Integration is always serial.
+5. State writes are atomic and locked. `events.ndjson` is the append-only cross-session journal.
+6. A stored pane id is never trusted alone; its run/item/role label must still match.
+7. Prompt submission is bounded to 30 seconds. Waits use five-minute slices and park.
+8. Review stops at zero open findings, unchanged no-progress, round six, or a technical blocker.
+9. Only `verdict.json` or item state is authoritative. Never parse a verdict from prose/transcripts.
+10. `finish` and item cleanup never close the coordinator pane.
+
+## Initial pickup and plan gate
+
+```bash
+python3 <script> pickup --cwd <consumer> --task "<exact user request>"
+python3 <script> init --cwd <consumer> --task "<exact user request>"
 python3 <script> pickup --run-id <id>
 ```
 
-Always pass `--task` on `/auto-plan <what>` so pickup does not resume a leftover run for a different request. Obey `implementer_next` / `reviewer_next`. `init` without `--new` reuses an unfinished run **only when `task.md` matches**.
+Always pass the request with `--task`; exact normalized task matching prevents a different request from taking a stale run.
 
-| `implementer_next` | Do this | Skip |
-| --- | --- | --- |
-| `init` | `init --task`, then pickup again | spawn |
-| `explore-or-plan` | Explore if needed, draft/submit plan | implement, spawn |
-| `await-plan` | Await the **existing** plan id | new submit, spawn |
-| `implement` | Implement the approved `plan.md` | re-plan, spawn |
-| `spawn-reviewer` | `review` (spawn+wait+close helpers) | re-implement |
-| `wait-verdict` | `wait-verdict` or `review` | second reviewer pane |
-| `report` | `finish` (idempotent), then tell the user `verdict` | anything else |
+Follow `implementer_next`:
 
-| `reviewer_next` | Do this |
+| State | Action |
 | --- | --- |
-| `first-review` | Review the diff, write `findings.md` |
-| `worker` | `Agent` worker on every `Status: open` |
-| `re-verify` | Re-read files; LGTM or new opens |
-| `already-done` | Re-print the two-line verdict only if it is not on screen |
+| `init` | `init`, then pickup again |
+| `explore-or-plan` | Explore once if needed; submit the plan to diffing |
+| `await-plan` | Await the existing plan id |
+| `implement` | Choose single-flow or item-flow below |
+| `spawn-reviewer` | Single-flow only: `review` |
+| `wait-verdict` | `wait-verdict`; park on a wait slice |
+| `items-drive` | Drive item-flow only: `items-status`/`claim-item`/`spawn-item`/`wait-item`/`integrate-item`; never edit the consumer |
+| `finalize-items` | All items integrated: `finalize-items` |
+| `report` | `finish`, then report the authoritative verdict when items-state is finalized or all items are blocked |
 
-Session overlay (script cannot see the chat): if pickup says `init` but this conversation already submitted/approved a plan or already implemented, `init` then copy that evidence into the run dir (`plan-id.txt`, `plan.md`, `implementer-summary.md`) and pickup again. Do not redo work that already landed.
+After compaction, `pickup` is authoritative for item-flow too — follow `implementer_next` the same way; never reconstruct item-flow state from chat.
 
-## Roles
+Store `plan-id.txt` immediately after submission. Print the diffing plan URL before awaiting. Only `approved` proceeds. Copy the approved version to `plan.md`.
 
-| Role | Who | Owns |
-| ------ | ------ | ------ |
-| **Implementer** | This pane (the lead that took the task) | Explore, diffing plan, implement the approved plan, `review` / `wait-verdict` / `finish`. This pane stays open. |
-| **Reviewer** | New herdr split, full pi leader at xhigh (else high) | Review, write findings, spawn workers, re-verify including nits, print `LGTM.` or `BLOCKED` |
-| **Worker** | `Agent` `subagent_type: worker` | Implement open findings. Depth 1. Fresh worker each round — do not resume |
+Large UI work still requires the AGENTS.md mockup approval gate.
 
-The reviewer never edits product files. The implementer never reviews their own work in this loop.
+## Choose execution mode
 
-This reviewer ↔ worker loop is an exception to AGENTS.md "at most one resume" / "no ping-pong" / two-attempt cap. It runs until 0 open findings (nits included) or a stalemate.
+Use **single-flow** only when the plan is genuinely indivisible, edits one tightly-coupled area, and parallel sessions would add no value.
 
-## Script
+Use **item-flow** when any apply:
 
-`~/.pi/agent/skills/harness-auto-plan/scripts/auto-plan.py`
+- multiple independent deliverables;
+- multiple packages/services/screens;
+- work can be dependency-ordered;
+- the task is large enough to benefit from fresh contexts;
+- two agents could safely work at once on disjoint paths.
 
-Always pass the absolute path. Every subcommand prints JSON.
+Do not force concurrency. `--max-parallel 1` gives the same fresh-session protocol one item at a time.
 
-```
-python3 <script> pickup [--cwd <consumer>] [--run-id <id>] [--task "<the task>"]
-python3 <script> init --cwd <consumer> --task "<the task>"   # reuses unfinished run only if task.md matches; else new run. --new always starts fresh
-python3 <script> thinking [--provider P] [--model M]
-python3 <script> spawn-reviewer --run-id <id> [--provider P] [--model M] [--pane <existing>]
-python3 <script> wait-verdict --run-id <id> [--timeout-ms N]
-python3 <script> review --run-id <id>   # spawn-reviewer + wait-verdict + close helpers
-python3 <script> finish --run-id <id>   # close leftover helpers; never the implementer pane
-```
+# Item-flow coordinator
 
-`spawn-reviewer` **refuses** unless pickup would return `spawn-reviewer` or `wait-verdict` (approved plan implemented, `implementer-summary.md` written, consumer tree has a reviewable diff vs the run's `base_sha`). An empty working tree is not reviewable. When allowed, it splits the current pane (`HERDR_PANE_ID`) to the right with `--no-focus`, starts `pi` via `herdr agent start --kind pi`, then `herdr agent prompt`s the reviewer brief. It picks `--thinking xhigh` when the model map has a non-null `xhigh`, otherwise `high`. It sets `PI_THINKING_ROUTER=0` on the new pane so the word "review" cannot drop thinking. If `agent start` fails after the split, retry with `--pane <id>` — do not split again.
+The coordinator stays in the original pane and never edits item worktrees.
 
-`wait-verdict` / `review` persist `AUTO_PLAN_VERDICT` to `status.json` **before** closing anything. They then close helper panes this run spawned (the reviewer, plus any `review:<run-id>` pane). They **never** close the implementer pane or `HERDR_PANE_ID`. `finish` is the same close, idempotent — use it on `report` if `finish_needed`.
+## 1. Write the immutable manifest
 
-Pass this session's `--provider` / `--model` when you know them (TUI footer). Otherwise the script uses `settings.json`.
+Place it in the run directory, never the consumer tree:
 
-## Implementer
-
-**Order is load-bearing.** Explore/plan → await approval → **implement + verify + write `implementer-summary.md`** → only then spawn the reviewer. The first action is never `spawn-reviewer`. An empty working tree means implement, not review. The script will refuse an early spawn.
-
-0. If `HERDR_ENV` is not `1`, stop. **`pickup --cwd --task "<the user request>"`**. Continue from `implementer_next` only.
-1. `init --task` only when pickup says `init` (or you need `--new`). Store `run_id` and `dir`. Do not put run files in the consumer tree.
-2. Large UI (new screens/flows/redesign): the AGENTS.md mockup gate still applies before product code.
-3. `explore-or-plan`: explore if needed (`Agent` `explorer`, one spawn). Draft the plan, submit to diffing, **print the plan URL**. Write the id to `<dir>/plan-id.txt` immediately, then await, obey `diffing-plan-review`. Only `approved` continues. Copy the approved body to `<dir>/plan.md`.
-4. `await-plan`: await the existing plan id. Do not submit another plan.
-5. `implement`: implement the approved plan yourself (substantive). Chores (`tests`, `lint`, …) still go to `Agent`. Write `<dir>/implementer-summary.md` when done (what changed, files, verification, leftover risk). Pickup must now say `spawn-reviewer` (reviewable diff present) before the next step.
-6. `spawn-reviewer`: only when pickup says this. Prefer `review` (spawn + wait + close helpers). Live working reviewer → no second pane. Print `pane_id` and `thinking`. If the script refuses, you skipped implement — go back and implement.
-7. `wait-verdict`: omit timeout unless the user set one. Safe to retry — it matches output already on screen, persists the verdict, then closes helpers. Never close this pane.
-8. `report`: `finish` if `finish_needed` (leftover helpers). Tell the user `verdict` (`LGTM` or `BLOCKED`). Do **not** close this pane. Do **not** hand to human `/review` unless they ask.
-
-After any compact or user "continue", pickup again before acting.
-
-## Reviewer
-
-On every turn (including resume/compaction): `pickup --run-id <id>` and obey `reviewer_next`. Do not start a blank review when `findings.md` already exists.
-
-Read `<dir>/plan.md`, `<dir>/implementer-summary.md`, and the scoped diff (`harness-diff-read`). Review against the approved plan, not the implementer's story.
-
-### Each round
-
-1. Write `<dir>/findings.md` with **only currently open** issues (see format). Snapshot a copy to `<dir>/findings-round-<n>.md`. Update `<dir>/status.json` `round`.
-2. If 0 open issues: the **entire** final message is exactly:
-
-```
-AUTO_PLAN_VERDICT LGTM
-LGTM.
+```json
+{
+  "items": [
+    {
+      "id": "api",
+      "title": "Add API contract",
+      "description": "Exact approved-plan scope and acceptance checks",
+      "paths": ["src/api/**", "tests/api/**"],
+      "depends": []
+    },
+    {
+      "id": "ui",
+      "title": "Connect UI",
+      "description": "Consume the approved API contract",
+      "paths": ["src/ui/**", "tests/ui/**"],
+      "depends": ["api"]
+    }
+  ]
+}
 ```
 
-   Stop. No extra prose. Do not close panes — the implementer script does.
+Requirements:
 
-3. If any open issue (nits included): `Agent` `subagent_type: worker` with a brief that includes the consumer cwd, the absolute findings path, and:
+- IDs are stable and unique.
+- Descriptions are independently executable and verifiable.
+- `paths` are exclusive ownership boundaries.
+- Every dependency names another item.
+- The graph is acyclic.
+- Independent items cannot overlap paths; the script rejects them.
+- If overlap is necessary, make the later item depend on the earlier one.
 
-   - Address **every** `Status: open` issue, including nits. Nothing is too small.
-   - Edit product files; do not spawn subagents.
-   - For each issue: `Status: fixed` plus a `Response:` line, or `Status: wontfix` with a technical reason.
-   - Return: changed files, what you verified, blockers.
+Initialize from a clean consumer checkout:
 
-4. Re-read the files yourself. Do not trust the worker's Status. Keep `open` if the fix is missing, partial, or a new regression. Accept a `wontfix` only when the rationale is technically sound.
-5. Repeat from step 1. Fresh worker every round.
-
-Never print `LGTM.` while any issue is `open`.
-
-## Findings format
-
-```markdown
-# Findings — round N
-
-### Issue 1 -- Severity: bug|suggestion|nit
-- **File**: path/to/file.ext:LINE
-- **Description**: <what is wrong>
-- **Suggestion**: <how to fix>
-- **Status**: open
+```bash
+python3 <script> items-init --run-id <id> --manifest <manifest.json> --max-parallel <1..16>
 ```
 
-After a worker: `Status` is `open`, `fixed`, or `wontfix`. Add `- **Response**: ...` on fixed/wontfix.
+This creates a run integration branch/worktree outside the consumer checkout. Repeating the exact command is idempotent; a changed manifest is rejected.
 
-## Markers
+## 2. Schedule ready items
 
-Greppable in the reviewer pane (`herdr pane wait-output` uses these; the script wraps that):
+```bash
+python3 <script> items-status --run-id <id>
+```
 
-| Line | Meaning |
-| ------ | ------ |
-| `AUTO_PLAN_VERDICT LGTM` | 0 open issues; followed by `LGTM.` |
-| `AUTO_PLAN_VERDICT BLOCKED` | stalemate; dispute follows |
+Only returned `items` are ready. The list is dependency-aware and capped by free parallel slots.
 
-## Stalemate
+For each ready item, claim then spawn. Ready items may be launched concurrently, but each command pair is serial per item:
 
-If the worker sets `wontfix` and the next review re-opens the **same** issue (match **File** + **Description**) twice, stop. Print `AUTO_PLAN_VERDICT BLOCKED` then the two positions. Do not keep looping.
+```bash
+python3 <script> claim-item --run-id <id> --item-id <item> --role implementer
+python3 <script> spawn-item --run-id <id> --item-id <item> --provider <p> --model <m>
+python3 <script> wait-item --run-id <id> --item-id <item> --role implementer
+```
 
-## Run directory
+`claim-item` atomically creates a dedicated branch/worktree and nonce. A second claim is refused. `spawn-item` creates a fresh labelled herdr pane:
 
-`~/.pi/agent/tmp/auto-plan/<run-id>/` (gitignored). Consumer repo is untouched.
+```text
+auto:<run-id>:<item-id>:impl:<attempt>
+```
 
-| File | Writer |
-| ------ | ------ |
-| `meta.json` | script |
-| `task.md` | implementer / `init` |
-| `plan.md`, `plan-id.txt` | implementer after approval |
-| `implementer-summary.md` | implementer before spawn |
-| `findings.md`, `findings-round-N.md` | reviewer |
-| `status.json` | script + reviewer |
-| `reviewer-system.expanded.md` | script at spawn |
+The item implementer reads its persisted assignment, edits only owned paths, verifies, then calls `record-item`. That command validates the nonce, rejects out-of-scope paths before commit, requires a real diff, commits it, updates item state, and emits a notification marker.
+
+`wait-item` uses a five-minute slice by default:
+
+- `complete`: continue;
+- `park`: item is still working; end the coordinator turn or call again when asked;
+- `stalled`: inspect/recover the existing labelled pane; do not split blindly;
+- identity mismatch: stop instead of reading or closing an unrelated pane.
+
+## 3. Fresh item review
+
+After authoritative item status is `implemented`:
+
+```bash
+python3 <script> spawn-item-reviewer --run-id <id> --item-id <item> --provider <p> --model <m>
+python3 <script> wait-item --run-id <id> --item-id <item> --role reviewer
+```
+
+The completed implementer pane is closed only after its durable result exists. Every item gets a fresh reviewer pane:
+
+```text
+auto:<run-id>:<item-id>:review:<attempt>
+```
+
+The reviewer never edits product files. It writes `items/<item>/findings.md`, including nits, then runs:
+
+```bash
+python3 <script> item-review-checkpoint --run-id <id> --item-id <item>
+```
+
+Checkpoint results:
+
+- `worker`: spawn one fresh `Agent` worker to address every open issue, then re-read and review again;
+- `verify-clean`: independently re-verify, then record LGTM;
+- `blocked`: stop; the code-enforced round/no-progress budget fired.
+
+The reviewer records the terminal result with the assignment nonce:
+
+```bash
+python3 <script> record-item-review --run-id <id> --item-id <item> --nonce <nonce> --verdict LGTM
+python3 <script> record-item-review --run-id <id> --item-id <item> --nonce <nonce> --verdict BLOCKED --reason "<technical reason>"
+```
+
+LGTM is refused while any finding is open. Review fixes outside owned paths are refused before commit.
+
+## 4. Integrate serially
+
+Approved item branches merge into the integration worktree one at a time:
+
+```bash
+python3 <script> integrate-item --run-id <id> --item-id <item>
+```
+
+A merge conflict aborts the merge and marks the item `BLOCKED`; never ask another item session to resolve a cross-item integration conflict concurrently.
+
+After each integration, call `items-status` again. Newly satisfied dependents become ready.
+
+## 5. Finalize
+
+When every item is `integrated`:
+
+```bash
+python3 <script> finalize-items --run-id <id>
+```
+
+Finalization refuses unless the original consumer checkout is clean and still at the recorded base commit. It fast-forwards to the integration result and removes run-owned worktrees/branches. If the consumer moved, stop and reconcile explicitly; never overwrite it.
+
+# Single-flow
+
+Single-flow keeps the original lead implementation path but uses the hardened snapshot/review protocol.
+
+1. Implement the approved plan and verify it.
+2. Write `implementer-summary.md`.
+3. `pickup` must say `spawn-reviewer`.
+4. Inspect the exact run delta with:
+
+```bash
+python3 <script> diff-snapshot --run-id <id>
+```
+
+The returned base/current git trees include untracked files and exclude unchanged pre-run dirt.
+
+1. Start and wait in bounded slices:
+
+```bash
+python3 <script> review --run-id <id> --provider <p> --model <m>
+python3 <script> wait-verdict --run-id <id>
+```
+
+The reviewer writes `findings.md`, calls `review-checkpoint` every pass, uses fresh workers, and records a terminal verdict through `record-verdict` with the run nonce. It does not print the old transcript verdict marker.
+
+`finish` refuses to close helpers without an authoritative verdict. `finish --force` is recovery-only.
+
+## Single-flow reviewer commands
+
+```bash
+python3 <script> review-checkpoint --run-id <id> --nonce <nonce>
+python3 <script> record-verdict --run-id <id> --nonce <nonce> --verdict LGTM
+python3 <script> record-verdict --run-id <id> --nonce <nonce> --verdict BLOCKED --reason "<reason>"
+```
+
+LGTM requires zero open findings. `record-verdict` atomically creates `verdict.json`; `AUTO_PLAN_RECORDED ...` is only a wake-up marker.
+
+# Bounds and recovery
+
+- Prompt acceptance timeout: 30 seconds.
+- Wait slice: 300 seconds, then `park` if still working.
+- Review cap: sixth still-open round becomes `BLOCKED`.
+- No progress: one repeated identical open-findings + git-state signature becomes `BLOCKED` on the second checkpoint.
+- Agent start: one automatic retry in the same labelled pane; never make a second split for the same transient failure.
+- Concurrent `init`, claims, state transitions, and events are file-locked.
+- JSON state uses atomic replacement.
+- `events.ndjson` is append-only and safe for cross-session handoff.
+- Pane IDs may compact. Discovery and cleanup require the matching run/item label.
+- After compaction, use `pickup`, `items-status`, and persisted item metadata. Never reconstruct state from chat.
+
+# Run storage
+
+```text
+~/.pi/agent/tmp/auto-plan/<run-id>/
+```
+
+Key files:
+
+| File | Purpose |
+| --- | --- |
+| `meta.json` | Run identity, base snapshot tree, nonce, owned panes |
+| `status.json` | Current single-flow state and review counters |
+| `events.ndjson` | Append-only communication journal |
+| `plan.md`, `plan-id.txt` | Human-approved plan evidence |
+| `implementer-summary.md` | Single-flow implementation handoff |
+| `findings.md`, `findings-round-N.md` | Single-flow review state |
+| `verdict.json` | Authoritative single-flow terminal verdict |
+| `items/manifest.json` | Immutable item graph |
+| `items-state.json` | Scheduler/integration state |
+| `items/<id>/meta.json` | Durable item assignment, nonce, worktree, status |
+| `items/<id>/findings*.md` | Item review handoff and round history |
+
+The consumer tree contains only finalized product changes.

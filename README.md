@@ -19,7 +19,7 @@ diffing-first workflow — stored as a dotfiles-style git repo at `~/.pi`.
 │   ├── skills/
 │   │   ├── harness-tdd/      — TDD bug loop (on demand)
 │   │   ├── harness-diff-read/ — inspect → git → diff-reader
-│   │   └── harness-auto-plan/ — opt-in herdr plan→implement→reviewer LGTM loop
+│   │   └── harness-auto-plan/ — opt-in herdr plan→items/single-flow→reviewer loop
 │   ├── agents/               — 11 workers + vision-free fallback
 │   ├── extensions/
 │   │   ├── 00-fff-defaults.ts — PI_FFF_MODE=override, no $HOME index
@@ -65,8 +65,10 @@ Piolium is not loaded globally. Install it in the target repo when you audit.
 - Diffs: inspect first (`summary` → `--path` files/slice). Path-scoped
   `git diff` next. `diff-reader` last, never the whole tree.
 - Diffing review loop: `/plan` before coding, `/review` hands the diff to
-  you, `/finish` applies feedback. Opt-in `/auto-plan` (herdr only) adds an
-  independent xhigh reviewer pane that loops a worker until `LGTM.`
+  you, `/finish` applies feedback. Opt-in `/auto-plan` (herdr only) adds
+  bounded, conflict-safe automation: dependency-aware item scheduler with
+  isolated worktrees and fresh implementer/reviewer sessions, or a single
+  independent reviewer pane — either way it stops at LGTM/BLOCKED.
 - Extensions hot-reload with `/reload`.
 
 ## User-message jump patch (re-apply after pi updates)

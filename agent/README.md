@@ -59,7 +59,7 @@ with one `vision-free` fallback.
 ├── subagents.json         — pi-subagents settings (no built-in defaults)
 ├── skills/harness-tdd/    — TDD bug loop (progressive disclosure)
 ├── skills/harness-diff-read/ — inspect → path-scoped git → diff-reader
-├── skills/harness-auto-plan/ — opt-in herdr plan→implement→reviewer LGTM loop
+├── skills/harness-auto-plan/ — opt-in herdr plan→items/single-flow→reviewer loop
 ├── extensions/
 │   ├── 00-fff-defaults.ts — PI_FFF_MODE=override, FFF_ENABLE_HOME_SCAN=0
 │   ├── 00-paste-chips.ts  — [Image #N] / [Paste #N] chips (no remount)
@@ -181,7 +181,7 @@ Human-in-the-loop review is the default workflow, not an add-on:
 | `/finish` | Process the human's review handoff — apply edits, answer, resolve threads |
 | `/diffing <route>` | Router: start / finish / plan / mockup / pr / status |
 | `/implement <query>` | explore → plan → diffing approval → implement → verify → review |
-| `/auto-plan <what>` | **Opt-in, herdr only.** Plan → approval → implement → split-pane reviewer at xhigh (else high) ↔ worker until `LGTM.` Not the default. |
+| `/auto-plan <what>` | **Opt-in, herdr only.** Plan → approval → item scheduler (fresh isolated implementer/reviewer sessions, bounded review loops, serial integration) or single-flow reviewer until LGTM/BLOCKED. Not the default. |
 
 Rules enforced in `AGENTS.md`: always print the review/plan/mockup URL before
 awaiting; plans and mockup sources live under `~/.diffing/` never in the
@@ -207,11 +207,17 @@ live in the `diffing` skill's "herdr coordination" section. Never edit the
 herdr team's own skill (`~/.agents/skills/herdr/`) — keep diffing-specific
 recipes in the diffing skill.
 
-Opt-in `/auto-plan` (skill `harness-auto-plan`) implements first, then spawns
-a reviewer pi via `herdr agent start --kind pi` and waits on
-`AUTO_PLAN_VERDICT LGTM|BLOCKED`. After a verdict it persists then closes
-helper panes (never the implementer pane). `pickup` resumes from the next
-unfinished step; `spawn-reviewer` refuses until there is a reviewable diff.
+Opt-in `/auto-plan` (skill `harness-auto-plan`) gates on an approved diffing
+plan, then either runs single-flow (lead implements, fresh split-pane reviewer)
+or item-flow: an immutable item manifest, dependency-aware scheduling with
+`--max-parallel`, isolated git worktrees per item, fresh implementer and
+reviewer sessions per item, serial integration, and a fast-forward `finalize`
+that only touches a clean unchanged consumer checkout. Verdicts are
+authoritative files (`verdict.json`, item state) recorded with run/item
+nonces — console text is notification only. Waits are bounded slices that
+park; review loops stop at 0 open findings, no-progress, or round 6.
+`pickup` resumes from the next unfinished step; `spawn-reviewer` refuses
+until there is a reviewable diff.
 
 ## Day-to-day
 

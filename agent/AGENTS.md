@@ -29,12 +29,14 @@ Bug-fix TDD details: read the `harness-tdd` skill.
 
 ## Todos — required for multistep tasks
 
+The `todo` list **is** the user's live progress (`/todos`). Stale items are a bug. Keep it truthful every turn.
+
 - **Any task with 3+ steps** (multiple files, tools, or spawns; multi-phase work like plan → implement → test → review) **starts with the `todo` tool before any other action**: `add` one item per step.
 - **One item per step, concrete and checkable** — "add validation to `src/x.ts`", "run `npm test`", "spawn `tests` worker". Never vague ("finish task").
-- **`toggle` done immediately after finishing each item** — never in advance, never batched at the end.
-- **New subtasks discovered mid-flight → `add` them right away**, then keep going.
+- **`toggle` the moment a step finishes** — same turn, before the next step or your final reply. Never in advance. Never batch at the end.
+- **New subtasks discovered mid-flight → `add` them right away.** If a step's remaining work changed, `update` that id. Then keep going.
 - **Skip the list only for trivial ≤2-step work** — a todo list for one edit is noise.
-- **`clear` when the whole task completes.** User can inspect progress anytime with `/todos`.
+- **`clear` only when the whole task is done** (every item complete). User inspects progress anytime with `/todos`.
 - After compaction or `/pickup`-style resumes: `todo` `list` first, then continue from the first unfinished item — do not redo completed steps.
 
 ## HTML mockups (big UI)
@@ -95,7 +97,7 @@ When running inside herdr (`HERDR_ENV=1`):
 
 ## Opt-in `/auto-plan` (herdr)
 
-Default remains `/plan` → implement → `/review`. `/auto-plan` is opt-in and requires herdr: plan → approval → **lead implements** → only then spawn an independent reviewer leader in a split pane at thinking xhigh (high if the model has no xhigh). Never spawn that reviewer first, and never spawn it on an empty working tree. That reviewer loops `Agent` `worker` until every finding including nits is addressed, then prints `LGTM.`. After a verdict the script closes helper panes (the reviewer); the implementer pane stays. Skill: `harness-auto-plan`. Do not start this loop unless the user invoked `/auto-plan` or asked for it. Mid-session or after compaction, `pickup` and continue from the next unfinished step — do not redo completed phases.
+Default remains `/plan` → implement → `/review`. `/auto-plan` is opt-in and requires herdr: plan → human approval → then either **item-flow** (immutable item manifest, dependency-aware scheduler with `--max-parallel`, isolated git worktrees per item, fresh implementer and reviewer sessions, serial integration, fast-forward `finalize` on a clean unchanged consumer) or **single-flow** (lead implements, then an independent reviewer leader in a split pane at thinking xhigh, high if the model has no xhigh). Never spawn a reviewer first, and never spawn one on an empty working tree. Review loops are code-bounded: fresh `Agent` `worker` per round, stop at 0 open findings (nits included), no-progress, round 6, or a technical blocker. Verdicts are authoritative files (`verdict.json`, item state) recorded with run/item nonces — console text is notification only; waits are bounded slices that park. After a verdict the script closes helper panes (the reviewer); the implementer/coordinator pane stays. Skill: `harness-auto-plan`. Do not start this loop unless the user invoked `/auto-plan` or asked for it. Mid-session or after compaction, `pickup` and continue from the next unfinished step — do not redo completed phases.
 
 ## Commits
 
@@ -108,7 +110,7 @@ Conventional Commits only: `<type>(<optional-scope>): <description>`. No `Co-aut
 - **At most one resume** per agent id (`resume` on `Agent`, or `@handle`). If still incomplete or blocked, stop spawning — synthesize, fix a tiny gap yourself, or ask the user.
 - **No ping-pong:** never `explorer` → `worker` → `explorer` → … for the same question. Pattern: explore (optional) → implement → lead check → done.
 - If two attempts failed on the same goal, **escalate to the user** — do not keep launching agents.
-- **Exception — `/auto-plan` only:** the reviewer ↔ worker loop in `harness-auto-plan` runs until 0 open findings (nits included) or a stalemate. It does not use the two-attempt cap. Still depth 1: the reviewer (a lead) calls `Agent`; the worker never does.
+- **Exception — `/auto-plan` only:** the reviewer ↔ worker loops in `harness-auto-plan` run until 0 open findings (nits included) or a code-enforced bound (no-progress, round 6, technical blocker, merge conflict). They do not use the two-attempt cap. Still depth 1: the reviewer (a lead) calls `Agent`; the worker never does.
 
 ## Accuracy / evidence / compress / ask
 
