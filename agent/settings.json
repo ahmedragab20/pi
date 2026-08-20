@@ -3,7 +3,7 @@
   "theme": "rose-pine",
   "defaultProvider": "clinepass",
   "defaultModel": "cline-pass/glm-5.3",
-  "defaultThinkingLevel": "high",
+  "defaultThinkingLevel": "medium",
   "hideThinkingBlock": false,
   "externalEditor": "nvim",
   "quietStartup": true,
