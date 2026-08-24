@@ -24,7 +24,7 @@ Speak plain everyday English — the way you'd talk to a coworker over chat, not
 Request → route → optional `/plan` approval → implement / delegate → tests → `/review`.
 
 1. **Images** → prefer the injected `[VISION DESCRIPTION]` from vision-router. Else `Agent` `subagent_type: vision` (Codex Luna → Go Luna → free MiMo → Go MiMo → ClinePass MiMo). If it still returns `VISION_FALLBACK_NEEDED`, retry once with `vision-free`.
-2. **Lead does it:** design, architecture, multi-step reasoning, root-cause debugging, the TDD loop, fixes, scoped implementation, review, synthesis, tiny ≤2-tool tasks.
+2. **Lead does it:** design, architecture, multi-step reasoning, root-cause debugging, the TDD loop, fixes, scoped implementation, review, synthesis, **mockup HTML (author + revise)**, tiny ≤2-tool tasks.
 3. **Else `Agent` the matching worker** — chores and bulk tool work go to workers. Keep your own turns short: decide, brief, check, reply.
 
 Bug-fix TDD details: read the `harness-tdd` skill.
@@ -41,21 +41,26 @@ The `todo` list **is** the user's live progress (`/todos`). Stale items are a bu
 - **`clear` only when the whole task is done** (every item complete). User inspects progress anytime with `/todos`.
 - After compaction or `/pickup`-style resumes: `todo` `list` first, then continue from the first unfinished item — do not redo completed steps.
 
-## HTML mockups (big UI)
+## HTML mockups (hard rule)
 
-When the user asks for a **large UI change** — new feature UI, redesign, new screens, new flows — **offer HTML mockups first** via `ask_user_question`. Only proceed if they accept. Skip the offer only if they already said no this turn.
+Mockups drain a lot of tokens. The **lead** writes every mockup and every revision. **Never** spawn `Agent` `worker` (or any other subagent) to author, revise, or check mockup HTML.
 
-If they accept:
+**Create a mockup only when:**
 
-1. Load `diffing-mockup-author`. Call `diffing_design` `show` (extract a draft if none exists — do **not** publish unless the human asked). Put those tokens in the worker brief. Do not invent Inter + indigo + Tailwind CDN.
-2. **`Agent` `worker` immediately** with a **very detailed brief**: every distinct state as its own screen id, copy, layout, colors from the design system, `data-diffing` region names, and "self-contained HTML (inline CSS; no build; no tabs/accordions/modals/toggles/JS that swaps content)." Put every requirement in the brief — the worker must not guess. Have the worker return the HTML inline (or a staged path under `~/.diffing/<repo>-<hash>/mockup-sources/`), **never** a file inside the consumer git tree.
-3. Worker **writes the mockup and checks it against that brief** (screens/states covered). Return: the HTML (or staged path) + what was implemented vs requested.
-4. **Route it through diffing mockup review** — load `diffing-mockup-review` and use the pi tools: `diffing_mockup_submit` (html/screens inline, optional `mode` / `designSystem` / `planId`) → share `/mockup/<id>` → **park** (`diffing_mockup_await` only when the human is reviewing right now). Fix submit hints (in-page state / generic style) before parking. Do **not** lead-review, rewrite, or "validate" the HTML yourself — the diffing verdict is the gate.
-5. **Obey the verdict** before any product code:
+- the user asked for one this turn, or
+- you suggested one via `ask_user_question` and they accepted.
+
+Do **not** auto-create mockups because a task is "large UI", a redesign, or a new screen. Suggesting is optional; skipping the offer is fine. If they already said no this turn, do not ask again. A `/diffing mockup` (or equivalent) command counts as asking.
+
+If authorized:
+
+1. Load `diffing-mockup-author`. Call `diffing_design` `show` (extract a draft if none exists — do **not** publish unless the human asked). Use those tokens. Do not invent Inter + indigo + Tailwind CDN.
+2. **You write the HTML** — every distinct state as its own screen id, real product copy, design-system colors, `data-diffing` region names, self-contained HTML (inline CSS; no build; no tabs/accordions/modals/toggles/JS that swaps content). Stage a file only under `~/.diffing/<repo>-<hash>/mockup-sources/` — **never** inside the consumer git tree.
+3. **Route it through diffing mockup review** — load `diffing-mockup-review` and use the pi tools: `diffing_mockup_submit` (html/screens inline, optional `mode` / `designSystem` / `planId`) → share `/mockup/<id>` → **park** (`diffing_mockup_await` only when the human is reviewing right now). Fix submit hints (in-page state / generic style) before parking. The diffing verdict is the gate — do not implement product UI first.
+4. **Obey the verdict** before any product code:
    - `approved` → `diffing_mockup_handoff`, then implement.
-   - `changes-requested` → `diffing_mockup_inspect` open comments, revise **one screen at a time** with `diffing_mockup_screen` (`replace-region` when the comment has a `data-diffing` target; else `patch`), then `diffing_mockup_threads` reply + resolve, resubmit the same mockupId. Do **not** implement.
+   - `changes-requested` → `diffing_mockup_inspect` open comments, **you** revise **one screen at a time** with `diffing_mockup_screen` (`replace-region` when the comment has a `data-diffing` target; else `patch`), then `diffing_mockup_threads` reply + resolve, resubmit the same mockupId. Do **not** implement. Do **not** spawn a worker.
    - `rejected` → stop and rethink.
-6. On a revision request: identify the delta, then `Agent` `worker` again with a detailed brief for those changes. **Never write the mockup yourself** — always spawn the worker.
 
 Product implementation starts only after the diffing mockup verdict is `approved`.
 
@@ -81,7 +86,7 @@ Chores (tests/fixtures/lint/docs/git/memory/compression/mechanical CRUD) → `Ag
 
 **Override:** only an explicit user directive in the message ("commit this yourself", "run `npm test` directly"). Anything implied does not count. Do that one chore alone; keep delegating everything else.
 
-**Not chores — yours:** `git status`, small `git diff`, `git log`, isolated single-file `tsc --noEmit` on the file under inspection, reading official docs, design / logic / integration / debugging / architecture / fix-writing.
+**Not chores — yours:** `git status`, small `git diff`, `git log`, isolated single-file `tsc --noEmit` on the file under inspection, reading official docs, design / logic / integration / debugging / architecture / fix-writing, **mockup HTML (never `Agent` it)**.
 
 ## Diffing
 
@@ -97,10 +102,6 @@ When running inside herdr (`HERDR_ENV=1`):
 - The server prints `DIFFING_READY <url> mode=… pid=…` to stderr once listening — the MCP return or that background command's output already has the URL. Do not `herdr wait output` on a sibling pane for this. After each `await_review` / `await_plan_review` / `await_mockup_review` verdict, the pi extension surfaces `DIFFING_VERDICT <kind> decision=…` in the pi pane (notify + widget), greppable via `herdr pane read`.
 - Other herdr recipes (tests during a parked review, parallel agents) live in the diffing skill's "herdr coordination" section — never edit herdr's own skill (`~/.agents/skills/herdr/`).
 
-## Opt-in `/auto-plan` (herdr)
-
-Default remains `/plan` → implement → `/review`. `/auto-plan` is opt-in and requires herdr: plan → human approval → then either **item-flow** (immutable item manifest, dependency-aware scheduler with `--max-parallel`, isolated git worktrees per item, fresh implementer and reviewer sessions, serial integration, fast-forward `finalize` on a clean unchanged consumer) or **single-flow** (lead implements, then an independent reviewer leader in a split pane at thinking xhigh, high if the model has no xhigh). Never spawn a reviewer first, and never spawn one on an empty working tree. Review loops are code-bounded: fresh `Agent` `worker` per round, stop at 0 open findings (nits included), no-progress, round 6, or a technical blocker. Verdicts are authoritative files (`verdict.json`, item state) recorded with run/item nonces — console text is notification only; waits are bounded slices that park. Recording a verdict prompts the parked coordinator pane so it can continue without a human `continue`. Helpers never close themselves; after the coordinator consumes the verdict the script closes helper panes (the reviewer) and the implementer/coordinator pane stays. Skill: `harness-auto-plan`. Do not start this loop unless the user invoked `/auto-plan` or asked for it. Mid-session or after compaction, `pickup` and continue from the next unfinished step — do not redo completed phases.
-
 ## Commits
 
 Conventional Commits only: `<type>(<optional-scope>): <description>`. No `Co-authored-by:` trailers and no agent/bot attribution.
@@ -112,7 +113,6 @@ Conventional Commits only: `<type>(<optional-scope>): <description>`. No `Co-aut
 - **At most one resume** per agent id (`resume` on `Agent`, or `@handle`). If still incomplete or blocked, stop spawning — synthesize, fix a tiny gap yourself, or ask the user.
 - **No ping-pong:** never `explorer` → `worker` → `explorer` → … for the same question. Pattern: explore (optional) → implement → lead check → done.
 - If two attempts failed on the same goal, **escalate to the user** — do not keep launching agents.
-- **Exception — `/auto-plan` only:** the reviewer ↔ worker loops in `harness-auto-plan` run until 0 open findings (nits included) or a code-enforced bound (no-progress, round 6, technical blocker, merge conflict). They do not use the two-attempt cap. Still depth 1: the reviewer (a lead) calls `Agent`; the worker never does.
 
 ## Accuracy / evidence / compress / ask
 

@@ -59,7 +59,6 @@ with one `vision-free` fallback.
 ├── subagents.json         — pi-subagents settings (no built-in defaults)
 ├── skills/harness-tdd/    — TDD bug loop (progressive disclosure)
 ├── skills/harness-diff-read/ — inspect → path-scoped git → diff-reader
-├── skills/harness-auto-plan/ — opt-in herdr plan→items/single-flow→reviewer loop
 ├── extensions/
 │   ├── 00-fff-defaults.ts — PI_FFF_MODE=override, FFF_ENABLE_HOME_SCAN=0
 │   ├── 00-paste-chips.ts  — [Image #N] / [Paste #N] chips (no remount)
@@ -76,7 +75,7 @@ with one `vision-free` fallback.
 ├── npm/                   — pi packages (pi-subagents, vim, …)
 ├── themes/rose-pine.json  — card chrome + high-contrast TUI syntax
 ├── agents/                — 11 workers + vision-free fallback
-├── prompts/               — /diffing /plan /review /finish /commit /implement /explore /auto-plan
+├── prompts/               — /diffing /plan /review /finish /commit /implement /explore
 ├── tmp/                   — gitignored: tool-dumps
 ├── memory/                — gitignored: global MEMORY.md slugs
 └── vision/                — decoded pasted images (pruned after 7 days)
@@ -181,12 +180,13 @@ Human-in-the-loop review is the default workflow, not an add-on:
 | `/finish` | Process the human's review handoff — apply edits, answer, resolve threads |
 | `/diffing <route>` | Router: start / finish / plan / mockup / pr / status |
 | `/implement <query>` | explore → plan → diffing approval → implement → verify → review |
-| `/auto-plan <what>` | **Opt-in, herdr only.** Plan → approval → item scheduler (fresh isolated implementer/reviewer sessions, bounded review loops, serial integration) or single-flow reviewer until LGTM/BLOCKED. Not the default. |
 
-Rules enforced in `AGENTS.md`: always print the review/plan/mockup URL before
-awaiting; plans and mockup sources live under `~/.diffing/` never in the
-consumer tree; never mutate GitHub without explicit authorization. Skills from
-`~/.agents/skills/diffing*/` are auto-loaded (including `diffing-mockup-author`).
+Rules enforced in `AGENTS.md`: mockups are opt-in (user asked or accepted a
+suggestion) and lead-authored (never a worker); always print the
+review/plan/mockup URL before awaiting; plans and mockup sources live under
+`~/.diffing/` never in the consumer tree; never mutate GitHub without explicit
+authorization. Skills from `~/.agents/skills/diffing*/` are auto-loaded
+(including `diffing-mockup-author`).
 Read diffs with inspect (`harness-diff-read`); do not dump the whole patch into
 `diff-reader`.
 
@@ -206,20 +206,6 @@ Recipes (tests during a parked review, parallel agents + `wait agent-status`)
 live in the `diffing` skill's "herdr coordination" section. Never edit the
 herdr team's own skill (`~/.agents/skills/herdr/`) — keep diffing-specific
 recipes in the diffing skill.
-
-Opt-in `/auto-plan` (skill `harness-auto-plan`) gates on an approved diffing
-plan, then either runs single-flow (lead implements, fresh split-pane reviewer)
-or item-flow: an immutable item manifest, dependency-aware scheduling with
-`--max-parallel`, isolated git worktrees per item, fresh implementer and
-reviewer sessions per item, serial integration, and a fast-forward `finalize`
-that only touches a clean unchanged consumer checkout. Verdicts are
-authoritative files (`verdict.json`, item state) recorded with run/item
-nonces — console text is notification only. Waits are bounded slices that
-park; a recorded verdict prompts the parked coordinator so it can continue
-without a human `continue`. Helpers never close themselves — the coordinator
-closes leftover helper panes after consuming the verdict. Review loops stop
-at 0 open findings, no-progress, or round 6. `pickup` resumes from the next
-unfinished step; `spawn-reviewer` refuses until there is a reviewable diff.
 
 ## Day-to-day
 
