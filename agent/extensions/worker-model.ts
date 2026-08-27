@@ -1,12 +1,13 @@
 /**
- * Worker / vision-worker models: ClinePass first, OpenCode if ClinePass is
- * unauthed or out of usage (vision: Codex Luna → Go Luna → free MiMo →
- * Go MiMo → ClinePass MiMo). Never switches the lead.
+ * Worker / vision-worker models: OpenCode Go GLM Flash first, OpenCode Go
+ * DeepSeek Flash if GLM is unauthed or out of usage, ClinePass last (vision:
+ * Codex Luna → Go Luna → free MiMo → Go MiMo → ClinePass MiMo). Never
+ * switches the lead.
  *
  * Agent frontmatter cannot express a fallback (a pinned `model:` is locked),
  * so worker files omit `model` and this fills `Agent.model` before spawn.
- * A failed ClinePass spawn is retried once on OpenCode and the tool result
- * is replaced so the lead never sees the quota error.
+ * A failed spawn is retried once on the next model in the chain and the tool
+ * result is replaced so the lead never sees the quota error.
  */
 import { randomUUID } from "node:crypto";
 import type {
@@ -25,8 +26,9 @@ import {
 type Pair = readonly [string, string];
 
 const FLASH: Pair[] = [
-	["clinepass", "cline-pass/deepseek-v4-flash"],
+	["opencode-go", "glm-5.3-flash"],
 	["opencode-go", "deepseek-v4-flash"],
+	["clinepass", "cline-pass/deepseek-v4-flash"],
 ];
 const VISION: Pair[] = [
 	["openai-codex", "gpt-5.6-luna"],
@@ -167,7 +169,7 @@ export default function workerModel(pi: ExtensionAPI) {
 		if (picked === spec(fallbackOf(chain)) && ctx.hasUI && !notified) {
 			notified = true;
 			ctx.ui.notify(
-				"ClinePass unavailable or out of usage — workers using OpenCode",
+				"OpenCode Go unavailable or out of usage — workers using ClinePass",
 				"warning",
 			);
 		}
@@ -199,7 +201,7 @@ export default function workerModel(pi: ExtensionAPI) {
 		retried.add(event.toolCallId);
 		if (ctx.hasUI) {
 			ctx.ui.notify(
-				`ClinePass out of usage — retrying worker on OpenCode`,
+				`${used} out of usage — retrying worker on ${picked}`,
 				"warning",
 			);
 			notified = true;
@@ -230,13 +232,13 @@ export default function workerModel(pi: ExtensionAPI) {
 				finished.status !== "stopped";
 			const body =
 				(ok ? finished.result : finished.error || finished.result) ??
-				"OpenCode fallback finished with no text.";
+				"OpenCode Go fallback finished with no text.";
 			return {
 				content: [
 					{
 						type: "text" as const,
 						text: ok
-							? `${body}\n\n(retried on ${picked} after ClinePass usage limit)`
+							? `${body}\n\n(retried on ${picked} after usage limit)`
 							: body,
 					},
 				],
@@ -248,7 +250,7 @@ export default function workerModel(pi: ExtensionAPI) {
 				content: [
 					{
 						type: "text" as const,
-						text: `${text}\n\nOpenCode retry failed: ${msg}`,
+						text: `${text}\n\nFallback retry failed: ${msg}`,
 					},
 				],
 				isError: true,

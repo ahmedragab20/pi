@@ -1,9 +1,9 @@
 {
-  "lastChangelogVersion": "0.84.2",
+  "lastChangelogVersion": "0.84.3",
   "theme": "rose-pine",
-  "defaultProvider": "clinepass",
-  "defaultModel": "cline-pass/deepseek-v4-pro",
-  "defaultThinkingLevel": "max",
+  "defaultProvider": "cursor",
+  "defaultModel": "composer-2.5",
+  "defaultThinkingLevel": "high",
   "hideThinkingBlock": false,
   "externalEditor": "nvim",
   "quietStartup": true,
@@ -28,26 +28,21 @@
     }
   },
   "enabledModels": [
-    "opencode-go/deepseek-v4-pro",
     "xai/grok-4.6",
     "cursor/grok-4.6",
     "openai-codex/gpt-5.6-sol",
-    "cursor/claude-fable-5@300k",
-    "opencode-go/kimi-k3",
-    "opencode-go/deepseek-v4-flash",
-    "cursor/composer-2.5",
     "openai-codex/gpt-5.6-sol-1m",
-    "cursor/claude-opus-5@300k",
+    "cursor/claude-fable-5@1m",
+    "cursor/composer-2.5",
     "cursor/kimi-k3",
+    "opencode-go/deepseek-v4-pro",
+    "clinepass/cline-pass/deepseek-v4-pro",
+    "opencode-go/deepseek-v4-flash",
+    "clinepass/cline-pass/deepseek-v4-flash",
     "opencode-go/glm-5.3",
     "clinepass/cline-pass/glm-5.3",
-    "clinepass/cline-pass/kimi-k3",
-    "clinepass/cline-pass/deepseek-v4-pro",
-    "clinepass/cline-pass/qwen3.8-max"
+    "opencode-go/glm-5.3-flash"
   ],
-  "warnings": {
-    "anthropicExtraUsage": true
-  },
   "packages": [
     "npm:pi-tool-repair",
     "npm:@juicesharp/rpiv-ask-user-question",

@@ -16,7 +16,7 @@ Speak plain everyday English — the way you'd talk to a coworker over chat, not
 ## Roles
 
 - **Lead (you)** — the main pi session. Whatever model you selected (`/model` or Ctrl+P). Owns design, architecture, debugging, the TDD loop, fixes, scoped implementation, review judgment, synthesis. The model is *your choice* — routing is model-agnostic.
-- **Workers** — spawned via the `Agent` tool (`@tintinweb/pi-subagents`). Each runs in an isolated session with its own context window, role prompt (`~/.pi/agent/agents/*.md`), model, and tool allowlist. **Depth 1 only: workers never spawn workers.** Model is `clinepass/cline-pass/deepseek-v4-flash`, falling back to `opencode-go/deepseek-v4-flash` when ClinePass is unauthed or out of usage. The lead model is never switched. Do not pass `model` unless debugging.
+- **Workers** — spawned via the `Agent` tool (`@tintinweb/pi-subagents`). Each runs in an isolated session with its own context window, role prompt (`~/.pi/agent/agents/*.md`), model, and tool allowlist. **Depth 1 only: workers never spawn workers.** Model is `opencode-go/glm-5.3-flash`, falling back to `opencode-go/deepseek-v4-flash`, then `clinepass/cline-pass/deepseek-v4-flash` (last resort) when the earlier options are unauthed or out of usage. The lead model is never switched. Do not pass `model` unless debugging.
 - **Vision** — `vision` worker chain: `openai-codex/gpt-5.6-luna` → `opencode-go/gpt-5.6-luna` → `opencode/mimo-v2.5-free` → `opencode-go/mimo-v2.5` → `clinepass/cline-pass/mimo-v2.5` (first authed, non-exhausted, image-capable model wins). Last resort: `vision-free` (`opencode/mimo-v2.5-free`, pinned). Pasted images are auto-routed by `vision-router` with that same chain; `[VISION DESCRIPTION]` is injected before the lead sees the turn.
 
 ## Lead routing (first match)
@@ -87,6 +87,10 @@ Chores (tests/fixtures/lint/docs/git/memory/compression/mechanical CRUD) → `Ag
 **Override:** only an explicit user directive in the message ("commit this yourself", "run `npm test` directly"). Anything implied does not count. Do that one chore alone; keep delegating everything else.
 
 **Not chores — yours:** `git status`, small `git diff`, `git log`, isolated single-file `tsc --noEmit` on the file under inspection, reading official docs, design / logic / integration / debugging / architecture / fix-writing, **mockup HTML (never `Agent` it)**.
+
+## Memory refresh (when)
+
+After a completed `/review` verdict or a landed milestone (feature merged, big refactor, convention change), delegate **one** `memory` refresh: run `/memory refresh` and spawn the `memory` worker with the exact brief it prints (path included — never hand-assemble the path). Not auto-run; skip on trivial turns.
 
 ## Diffing
 

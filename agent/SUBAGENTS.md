@@ -27,10 +27,11 @@ Foreground blocks until done. Background returns an id and notifies on
 completion. Esc during `get_subagent_result wait: true` cancels the wait
 only — the worker keeps running.
 
-Do not pass `model` unless debugging. Flash workers use ClinePass Flash, then
-OpenCode Flash if ClinePass is unauthed or out of usage. `vision` uses Codex
-Luna → Go Luna → free MiMo → Go MiMo → ClinePass MiMo. The lead model is never
-switched.
+Do not pass `model` unless debugging. Flash workers use OpenCode Go GLM-5.3
+Flash, then OpenCode Go DeepSeek V4 Flash, then ClinePass Flash as the last
+resort when the earlier options are unauthed or out of usage. `vision` uses
+Codex Luna → Go Luna → free MiMo → Go MiMo → ClinePass MiMo. The lead model
+is never switched.
 
 ## FleetView (below the editor, while workers run)
 

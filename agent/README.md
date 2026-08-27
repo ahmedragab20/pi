@@ -28,10 +28,10 @@ You → pi (the lead, any model via /model or Ctrl+P)
 
 The lead owns every request end to end. It reasons, implements substantively,
 and delegates only mechanical chores to cheap Flash workers, which run in
-isolated sessions with their own context windows. Flash workers use
-ClinePass Flash, then OpenCode Flash if ClinePass is unauthed or out of usage.
-Vision uses Codex Luna → Go Luna → free MiMo → Go MiMo → ClinePass MiMo. The
-lead model is never switched.
+isolated sessions with their own context windows. Flash workers use OpenCode
+Go GLM-5.3 Flash, then OpenCode Go DeepSeek V4 Flash, then ClinePass Flash as
+the last resort. Vision uses Codex Luna → Go Luna → free MiMo → Go MiMo →
+ClinePass MiMo. The lead model is never switched.
 
 **Action flow:** request → route (lead / vision / one scoped worker) → optional
 `/plan` approval → implement / delegate → tests & diagnostics → diff review
@@ -141,10 +141,11 @@ long-context pricing above 272K input). Same pattern on Cursor Fable/Opus:
 | `vision-free` | mimo-v2.5-free | read, bash | One-time vision fallback |
 
 Workers are **depth 1** — they never spawn workers. Flash workers use
-`clinepass/cline-pass/deepseek-v4-flash`, falling back to
-`opencode-go/deepseek-v4-flash` when ClinePass is unauthed **or out of
-usage**. Vision worker: Codex Luna → Go Luna → free MiMo → Go MiMo → ClinePass
-MiMo. The lead is never switched (`extensions/worker-model.ts`). Spawn with
+`opencode-go/glm-5.3-flash`, falling back to `opencode-go/deepseek-v4-flash`,
+then `clinepass/cline-pass/deepseek-v4-flash` (last resort) when the earlier
+options are unauthed **or out of usage**. Vision worker: Codex Luna → Go
+Luna → free MiMo → Go MiMo → ClinePass MiMo. The lead is never
+switched (`extensions/worker-model.ts`). Spawn with
 `Agent({ subagent_type, prompt, description })`. Background:
 `run_in_background: true`; await with `get_subagent_result` or `/agents`.
 Steer with `steer_subagent` or `@handle`. Parallel writers: `isolation: "worktree"`;
@@ -158,7 +159,7 @@ the lead merges. Keymaps: [SUBAGENTS.md](SUBAGENTS.md).
 | --------- | ------ |
 | `/microcompact [on\|off\|status]` | Fold old tool dumps in outgoing context |
 | `/tools` / `/tools reset` | Deferred package extras vs core set |
-| `/memory` / `/memory refresh` | Show / how to refresh MEMORY.md |
+| `/memory` / `/memory refresh` | Show memory file + size / print the exact `memory` spawn brief |
 | `/thinking-router [on\|off\|status]` | Auto thinking from the prompt |
 | `/context-efficiency` | Small-window early compact status |
 | `/compact` | Stock compact, summarized by Flash when available |

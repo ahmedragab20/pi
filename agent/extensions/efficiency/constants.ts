@@ -1,4 +1,5 @@
 import { join } from "node:path";
+import { mkdirSync } from "node:fs";
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 
 export const DUMP_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
@@ -55,7 +56,9 @@ export function dumpPath(toolCallId: string): string {
 }
 
 export function memoryDir(): string {
-	return join(getAgentDir(), "memory");
+	const dir = join(getAgentDir(), "memory");
+	mkdirSync(dir, { recursive: true });
+	return dir;
 }
 
 export function isCompressibleTool(name: string): boolean {
