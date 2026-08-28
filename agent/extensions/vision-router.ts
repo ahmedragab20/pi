@@ -181,13 +181,14 @@ async function describeImages(
 	const markers = files
 		.map(
 			(f) =>
-				`- ${f.name} (${f.mimeType}, sha256 ${f.hash.slice(0, 12)}) at ${f.filePath}`,
+				`- [Image #${f.id}] ${f.name} (${f.mimeType}, sha256 ${f.hash.slice(0, 12)}) at ${f.filePath}`,
 		)
 		.join("\n");
 	const prompt = [
 		"Describe ONLY the pasted image(s) attached to THIS message. Do not reuse or recall any earlier screenshot.",
 		"The image files are attached — look at them directly.",
 		"Only use the read tool if you cannot see an attachment; then read the absolute paths from the markers.",
+		'Identify each image by its [Image #N] chip exactly as it appears in the user message — describe them in chip order so the user\'s wording ("this"/"that") maps correctly. Images without a chip in the message: describe last, in marker order.',
 		"Return only the description. No preamble about being a vision agent.",
 		"",
 		"Markers:",
@@ -305,6 +306,18 @@ function stripPasteMarkup(text: string): string {
 		.trim();
 }
 
+/** Chip-preserving variant for vision prompts and lead text: job tokens and
+ * pasted markers go, but `[Image #N]` chips stay (normalized to bare form) so
+ * sentence position ↔ image binding survives the round trip. */
+function keepChipsText(text: string): string {
+	return text
+		.replace(new RegExp(JOB_TOKEN.source, "g"), "")
+		.replace(new RegExp(PASTED_MARKER.source, "g"), "")
+		.replace(new RegExp(IMAGE_CHIP.source, "g"), (_m, id) => `[Image #${id}]`)
+		.replace(/\n{3,}/g, "\n\n")
+		.trim();
+}
+
 function matchJob(text: string): VisionJob | undefined {
 	const token = [...text.matchAll(new RegExp(JOB_TOKEN.source, "g"))].pop();
 	if (token) {
@@ -314,9 +327,7 @@ function matchJob(text: string): VisionJob | undefined {
 	const pending = [...jobs.values()].filter((j) => !j.consumed);
 	for (let i = pending.length - 1; i >= 0; i--) {
 		const job = pending[i];
-		if (
-			job.files.some((f) => text.includes(f.filePath) || text.includes(f.hash))
-		)
+		if (job.files.some((f) => text.includes(f.filePath) || text.includes(f.hash)))
 			return job;
 	}
 	return undefined;
@@ -331,13 +342,17 @@ function visibleUserText(job: VisionJob): string {
 
 function leadText(job: VisionJob): string {
 	const paths = job.files.map((f) => f.filePath).join(", ");
+	const chips = job.files
+		.filter((f) => f.id > 0)
+		.map((f) => `[Image #${f.id}] = ${f.filePath}`)
+		.join("; ");
 	if (job.result?.text) {
 		return [
 			`[VISION DESCRIPTION from ${job.result.model}:\n${job.result.text}]`,
 			"",
-			stripPasteMarkup(job.userText),
+			keepChipsText(job.userText),
 			"",
-			`[SYSTEM: vision-router already described THIS turn's image(s) and injected the description above. Prefer it over any earlier [VISION DESCRIPTION] in the session. There is no vision subagent — do not try to spawn one. Image files (this turn only): ${paths}]`,
+			`[SYSTEM: vision-router already described THIS turn's image(s) and injected the description above. The [Image #N] chips in the message refer to the described images, described in chip order. Prefer it over any earlier [VISION DESCRIPTION] in the session. There is no vision subagent — do not try to spawn one. Image files (this turn only): ${chips || paths}]`,
 		].join("\n");
 	}
 	const markers = job.files
@@ -418,7 +433,7 @@ function startJob(
 	job.promise = describeImages(
 		cwd,
 		files,
-		stripPasteMarkup(userText),
+		keepChipsText(userText),
 		abort.signal,
 	).then(
 		(result) => {
