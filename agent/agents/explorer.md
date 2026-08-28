@@ -4,6 +4,8 @@ display_name: Explorer
 color: teal
 description: Research worker (read-only). Proactively maps the codebase before implementation — finds files, symbols, call paths with concrete evidence. Never edits, tests, or judges. Never spawns subagents (depth 1).
 tools: read, bash, grep, find, ls
+thinking: medium
+max_turns: 30
 isolated: true
 prompt_mode: replace
 ---

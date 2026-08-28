@@ -27,6 +27,8 @@ export const CORE_IF_PRESENT = [
 	"find",
 	"grep",
 	"ask_user_question",
+	"todo",
+	"goal",
 ] as const;
 
 export const COMPRESSIBLE_TOOLS = new Set([

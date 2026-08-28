@@ -4,6 +4,8 @@ display_name: Git
 color: orange
 description: Writes commit messages, release notes, PR summaries, and git change summaries from the provided diff/context. Read-only — never edits or commits. Never spawns subagents (depth 1).
 tools: read, bash
+thinking: low
+max_turns: 10
 isolated: true
 prompt_mode: replace
 ---

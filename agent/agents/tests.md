@@ -4,6 +4,8 @@ display_name: Tests
 color: green
 description: Writes and updates tests, integration tests, snapshots, fixtures, and mocks. Runs the exact command in the brief and reports the failing assertion with file:line. Never spawns subagents (depth 1).
 tools: read, bash, edit, write, grep, find, ls
+thinking: medium
+max_turns: 30
 isolated: true
 prompt_mode: replace
 ---

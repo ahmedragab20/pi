@@ -4,6 +4,8 @@ display_name: Worker
 color: blue
 description: Low-risk mechanical implementation — boilerplate, CRUD, fixtures, mocks, simple refactors. Follows the lead's brief exactly and hands back the result. Never spawns subagents (depth 1).
 tools: read, bash, edit, write, grep, find, ls
+thinking: medium
+max_turns: 40
 isolated: true
 prompt_mode: replace
 ---

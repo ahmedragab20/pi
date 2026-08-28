@@ -18,6 +18,7 @@ Agent({
 | Want | Pass |
 | --- | --- |
 | Don't wait | `run_in_background: true` |
+| A handle you can address later | `name: "auth-audit"` → `@auth-audit` |
 | Isolated git copy | `isolation: "worktree"` |
 | Redirect a running worker | `steer_subagent({ agent_id, message })` |
 | Wait / read a background result | `get_subagent_result({ agent_id, wait: true })` |
@@ -27,11 +28,26 @@ Foreground blocks until done. Background returns an id and notifies on
 completion. Esc during `get_subagent_result wait: true` cancels the wait
 only — the worker keeps running.
 
-Do not pass `model` unless debugging. Flash workers use OpenCode Go GLM-5.3
-Flash, then OpenCode Go DeepSeek V4 Flash, then ClinePass Flash as the last
-resort when the earlier options are unauthed or out of usage. `vision` uses
-Codex Luna → Go Luna → free MiMo → Go MiMo → ClinePass MiMo. The lead model
-is never switched.
+**Do not pass `model` or `thinking`.** Each agent file pins its own
+`thinking` and `max_turns`, and `extensions/worker-model.ts` fills the model:
+`opencode-go/glm-5.3-flash` → `opencode-go/deepseek-v4-flash` →
+`clinepass/cline-pass/deepseek-v4-flash`, skipping any provider that is
+unauthed or out of usage. A spawn that fails on a usage limit is retried once
+on the next model in the chain and the tool result is replaced, so the lead
+never sees the quota error. The lead model is never switched.
+
+## Config (`subagents.json`)
+
+| Key | Value | Why |
+| --- | --- | --- |
+| `disableDefaultAgents` | `true` | Only harness agents are advertised |
+| `fallbackSubagent` | `"none"` | An unknown `subagent_type` is refused, not silently rerouted |
+| `workflowsEnabled` | `false` | `SubagentWorkflow` costs ~5k tokens of system prompt every turn. Fan out with parallel `Agent` calls instead |
+| `maxSubagentDepth` | `1` | Depth 1 enforced by the runtime, not by prose. Workers cannot spawn workers |
+
+Leave `scopeModels` off. It validates spawn models against `enabledModels`,
+and `worker-model.ts` supplies chain models that are not all in that list —
+turning it on hard-errors those spawns.
 
 ## FleetView (below the editor, while workers run)
 
@@ -71,7 +87,8 @@ Scroll up to pause auto-follow. `x` arms; any other key disarms.
 | `@explorer` (no message) | the lead — bare handle is not a send |
 | `hey @explorer …` | the lead — only a **leading** `@` is routed |
 
-`@` still completes files. Agent rows appear first.
+`@` still completes files. Agent rows appear first. A `name:` passed at spawn
+is addressable the same way, alongside the type-derived handle.
 
 ## Other
 

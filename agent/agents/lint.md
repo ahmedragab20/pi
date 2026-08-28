@@ -4,6 +4,8 @@ display_name: Lint
 color: yellow
 description: Handles formatting, lint, imports, and style without intentional runtime behavior changes. Runs the exact commands in the brief. Never spawns subagents (depth 1).
 tools: read, bash, edit, write, grep, find, ls
+thinking: low
+max_turns: 20
 isolated: true
 prompt_mode: replace
 ---

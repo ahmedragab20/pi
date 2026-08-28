@@ -19,8 +19,8 @@
 /agent/tmp/
 /agent/memory/
 
-# Idle-wait worker runtime (logs + pids leak absolute paths)
-/agent/waiting/
+# Goal-loop state (per-cwd GOAL.md + state.json)
+/agent/goals/
 
 # Symlink to local dev checkout (leaks absolute path)
 /agent/extensions/diffing

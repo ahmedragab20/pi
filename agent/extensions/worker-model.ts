@@ -1,8 +1,10 @@
 /**
- * Worker / vision-worker models: OpenCode Go GLM Flash first, OpenCode Go
- * DeepSeek Flash if GLM is unauthed or out of usage, ClinePass last (vision:
- * Codex Luna → Go Luna → free MiMo → Go MiMo → ClinePass MiMo). Never
- * switches the lead.
+ * Worker models: OpenCode Go GLM Flash first, OpenCode Go DeepSeek Flash if
+ * GLM is unauthed or out of usage, ClinePass last. Never switches the lead.
+ *
+ * Images are not routed here — a multimodal lead sees them natively, and a
+ * text-only lead is covered by `vision-router.ts`, which forks a headless
+ * `pi -p` child rather than spawning a subagent.
  *
  * Agent frontmatter cannot express a fallback (a pinned `model:` is locked),
  * so worker files omit `model` and this fills `Agent.model` before spawn.
@@ -30,25 +32,13 @@ const FLASH: Pair[] = [
 	["opencode-go", "deepseek-v4-flash"],
 	["clinepass", "cline-pass/deepseek-v4-flash"],
 ];
-const VISION: Pair[] = [
-	["openai-codex", "gpt-5.6-luna"],
-	["opencode-go", "gpt-5.6-luna"],
-	["opencode", "mimo-v2.5-free"],
-	["opencode-go", "mimo-v2.5"],
-	["clinepass", "cline-pass/mimo-v2.5"],
-];
 
 function spec([provider, id]: Pair): string {
 	return `${provider}/${id}`;
 }
 
-function chainFor(subagentType: unknown): Pair[] {
-	return String(subagentType ?? "").toLowerCase() === "vision" ? VISION : FLASH;
-}
-
-function fallbackOf(chain: Pair[]): Pair {
-	return chain[chain.length - 1]!;
-}
+/** Last resort in the chain — reaching it is worth a warning. */
+const LAST_RESORT = spec(FLASH[FLASH.length - 1]!);
 
 function providerOfSpec(s: string): string {
 	return s.split("/")[0] ?? "";
@@ -158,15 +148,13 @@ export default function workerModel(pi: ExtensionAPI) {
 		if (event.toolName !== "Agent") return;
 		const input = event.input as Record<string, unknown>;
 		if (typeof input.resume === "string" && input.resume.trim()) return;
-		if (String(input.subagent_type ?? "").toLowerCase() === "vision-free") return;
 		if (typeof input.model === "string" && input.model.trim()) return;
 
-		const chain = chainFor(input.subagent_type);
-		const picked = await pickModel(ctx, chain);
+		const picked = await pickModel(ctx, FLASH);
 		if (!picked) return;
 		input.model = picked;
 
-		if (picked === spec(fallbackOf(chain)) && ctx.hasUI && !notified) {
+		if (picked === LAST_RESORT && ctx.hasUI && !notified) {
 			notified = true;
 			ctx.ui.notify(
 				"OpenCode Go unavailable or out of usage — workers using ClinePass",
@@ -180,7 +168,6 @@ export default function workerModel(pi: ExtensionAPI) {
 		if (retried.has(event.toolCallId)) return;
 
 		const input = event.input as Record<string, unknown>;
-		if (String(input.subagent_type ?? "").toLowerCase() === "vision-free") return;
 		if (typeof input.resume === "string" && input.resume.trim()) return;
 		if (input.run_in_background === true) return;
 
@@ -191,11 +178,9 @@ export default function workerModel(pi: ExtensionAPI) {
 		const used = typeof input.model === "string" ? input.model : "";
 		if (used) markProviderExhausted(providerOfSpec(used));
 
-		const chain = chainFor(input.subagent_type);
-		const fb = spec(fallbackOf(chain));
-		if (used === fb) return;
+		if (used === LAST_RESORT) return;
 
-		const picked = await pickModel(ctx, chain);
+		const picked = await pickModel(ctx, FLASH);
 		if (!picked || picked === used) return;
 
 		retried.add(event.toolCallId);

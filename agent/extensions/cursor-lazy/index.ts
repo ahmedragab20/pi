@@ -1,10 +1,17 @@
 /**
- * Cached Cursor provider loader.
+ * Cursor provider, loaded on demand.
  *
- * Cursor registers at startup so `enabledModels` can resolve Cursor entries.
- * Warm starts use pi-cursor-sdk's disk-cached catalog and avoid network I/O.
+ * Importing pi-cursor-sdk pulls a large dependency tree (protobuf, connectrpc,
+ * undici, statsig) and cost ~630ms of every startup while it ran at boot, so it
+ * is deferred: `/cursor-load` registers the provider the first time it is
+ * needed. Warm loads still use the SDK's disk-cached catalog and avoid network
+ * I/O.
  *
- *   /cursor-load             confirm the provider is loaded
+ * Trade-off: `enabledModels` cannot resolve `cursor/*` entries until the
+ * provider is registered, so run `/cursor-load` once before Ctrl+P cycles to a
+ * Cursor model. Set PI_CURSOR_EAGER=1 to restore boot-time registration.
+ *
+ *   /cursor-load             load the provider, or confirm it is loaded
  *   /cursor-load --refresh   fetch Cursor's live catalog and replace the cache
  *   /cursor-unload           unregister the provider
  */
@@ -53,6 +60,7 @@ async function refreshCursorProvider(
 		streamSimple: streamCursorLazy,
 	};
 	pi.registerProvider("cursor", config);
+	loaded = true;
 	if (fallbackMessage) {
 		ctx.ui.notify(
 			`Cursor refresh used a fallback catalog: ${fallbackMessage}`,
@@ -66,13 +74,24 @@ async function refreshCursorProvider(
 	);
 }
 
-export default async function (pi: ExtensionAPI) {
+/** Import the SDK and register the provider. Cheap to call again once loaded. */
+async function loadCursorProvider(pi: ExtensionAPI): Promise<void> {
+	if (loaded) return;
 	const sdk = await import(SDK_ENTRY);
 	await sdk.default(pi);
 	loaded = true;
+}
+
+function eagerRequested(): boolean {
+	const v = (process.env.PI_CURSOR_EAGER || "").trim().toLowerCase();
+	return v === "1" || v === "true" || v === "on";
+}
+
+export default async function (pi: ExtensionAPI) {
+	if (eagerRequested()) await loadCursorProvider(pi);
 
 	pi.registerCommand("cursor-load", {
-		description: "Confirm Cursor is loaded, or refresh with --refresh",
+		description: "Load the Cursor provider, or refresh with --refresh",
 		handler: async (args, ctx) => {
 			if (!ctx.hasUI) return;
 			if (args.trim() === "--refresh") {
@@ -92,12 +111,20 @@ export default async function (pi: ExtensionAPI) {
 				ctx.ui.notify("Usage: /cursor-load [--refresh]", "warning");
 				return;
 			}
-			ctx.ui.notify(
-				loaded
-					? "Cursor provider already loaded"
-					: "Cursor provider is unloaded",
-				"info",
-			);
+			if (loaded) {
+				ctx.ui.notify("Cursor provider already loaded", "info");
+				return;
+			}
+			try {
+				await loadCursorProvider(pi);
+				ctx.ui.notify(
+					"Cursor provider loaded. Start a new session to pick up scoped models.",
+					"info",
+				);
+			} catch (error) {
+				const message = error instanceof Error ? error.message : String(error);
+				ctx.ui.notify(`Failed to load Cursor provider: ${message}`, "error");
+			}
 		},
 	});
 

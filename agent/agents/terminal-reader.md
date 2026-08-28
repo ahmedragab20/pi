@@ -4,6 +4,8 @@ display_name: Terminal reader
 color: gray
 description: Compresses large terminal output (provided in the brief) into errors, warnings, first failure, likely root cause, and relevant files. Pure reasoning — no tools. Hands the compressed packet back to the lead.
 tools: none
+thinking: low
+max_turns: 3
 isolated: true
 prompt_mode: replace
 ---

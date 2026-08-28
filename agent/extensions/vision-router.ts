@@ -29,6 +29,7 @@ import * as path from "node:path";
 import type {
 	ExtensionAPI,
 	ExtensionContext,
+	Theme,
 } from "@earendil-works/pi-coding-agent";
 import type { Component } from "@earendil-works/pi-tui";
 import { Text, VStack } from "@earendil-works/pi-tui";
@@ -79,10 +80,9 @@ type VisionEntryData = {
 	files: { name: string; path: string }[];
 };
 
-type ThemeFg = {
-	fg: (name: string, text: string) => string;
-	bold: (text: string) => string;
-};
+/** Only the two theme helpers visionCard uses — kept narrow, but sourced from
+ * the real Theme so the parameter types stay in step with pi. */
+type ThemeFg = Pick<Theme, "fg" | "bold">;
 
 const jobs = new Map<number, VisionJob>();
 let jobSeq = 0;
@@ -337,7 +337,7 @@ function leadText(job: VisionJob): string {
 			"",
 			stripPasteMarkup(job.userText),
 			"",
-			`[SYSTEM: vision-router already ran the vision agent on THIS turn's image(s) and injected the description above. Prefer it over any earlier [VISION DESCRIPTION] in the session. Do not re-run vision unless the description is missing or clearly wrong. Image files (this turn only): ${paths}]`,
+			`[SYSTEM: vision-router already described THIS turn's image(s) and injected the description above. Prefer it over any earlier [VISION DESCRIPTION] in the session. There is no vision subagent — do not try to spawn one. Image files (this turn only): ${paths}]`,
 		].join("\n");
 	}
 	const markers = job.files
@@ -349,7 +349,7 @@ function leadText(job: VisionJob): string {
 	return [
 		`${stripPasteMarkup(job.userText)} ${markers}`.trim(),
 		"",
-		`[SYSTEM: Pasted image(s) were decoded to ${VISION_DIR}. Vision auto-delegation failed: ${job.error ?? "unknown error"}. Your FIRST tool call MUST be Agent with subagent_type \`vision\` passing every image path (${paths}). If it returns VISION_FALLBACK_NEEDED, retry once with \`vision-free\`. You retain full tool access.]`,
+		`[SYSTEM: Pasted image(s) were decoded to ${VISION_DIR}. Describing them failed: ${job.error ?? "unknown error"}. There is no vision subagent — do not try to spawn one. If you can read images, read the paths directly (${paths}). Otherwise say the image could not be read and ask the user to re-paste or switch to a multimodal lead with Ctrl+P.]`,
 	].join("\n");
 }
 

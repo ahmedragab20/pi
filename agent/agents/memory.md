@@ -4,6 +4,8 @@ display_name: Memory
 color: purple
 description: Maintains rolling repository memory and refreshes project summaries after significant changes. Follows the lead's instructions and hands back the result. Never spawns subagents (depth 1).
 tools: read, bash, edit, write, grep, find, ls
+thinking: low
+max_turns: 20
 isolated: true
 prompt_mode: replace
 ---

@@ -4,6 +4,8 @@ display_name: Log reader
 color: slate
 description: Compresses logs (provided in the brief) into repeated exceptions, timestamps, frequencies, and likely failing subsystem. Pure reasoning — no tools. Hands the compressed packet back to the lead.
 tools: none
+thinking: low
+max_turns: 3
 isolated: true
 prompt_mode: replace
 ---

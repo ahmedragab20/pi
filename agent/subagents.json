@@ -1,4 +1,6 @@
 {
   "disableDefaultAgents": true,
-  "fallbackSubagent": "none"
+  "fallbackSubagent": "none",
+  "workflowsEnabled": false,
+  "maxSubagentDepth": 1
 }

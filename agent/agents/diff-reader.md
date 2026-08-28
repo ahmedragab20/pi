@@ -4,6 +4,8 @@ display_name: Diff reader
 color: navy
 description: Compresses large git diffs (provided in the brief) into changed APIs, risky files, behavior changes, and migration notes. Pure reasoning — no tools. Hands the compressed packet back to the lead.
 tools: none
+thinking: low
+max_turns: 3
 isolated: true
 prompt_mode: replace
 ---

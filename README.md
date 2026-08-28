@@ -12,32 +12,33 @@ diffing-first workflow — stored as a dotfiles-style git repo at `~/.pi`.
 ```
 ~/.pi/
 ├── agent/                    — all pi config lives here
-│   ├── AGENTS.md             — always-on rules (routing, chore, Agent
-│   │                           contract, scoped diffs, no-attribution)
+│   ├── AGENTS.md             — always-on rules (chore test, phase table,
+│   │                           auto-spawn triggers, worker brief spec,
+│   │                           worker-review gate, images, diffing, herdr)
 │   ├── SUBAGENTS.md          — Agent spawn + FleetView / viewer keymaps
-│   ├── subagents.json        — pi-subagents settings (no built-in defaults)
+│   ├── subagents.json        — no built-in agents, no fallback,
+│   │                           workflows off, depth 1
 │   ├── skills/
 │   │   ├── harness-tdd/      — TDD bug loop (on demand)
 │   │   ├── harness-diff-read/ — inspect → git → diff-reader
-│   │   └── harness-auto-plan/ — opt-in herdr plan→items/single-flow→reviewer loop
-│   ├── agents/               — 11 workers + vision-free fallback
+│   │   ├── harness-mockup/   — opt-in, lead-authored HTML mockups for diffing review
+│   │   └── claude-review/    — independent Claude review pane → human-approved fix plan
+│   ├── agents/               — 10 workers
 │   ├── extensions/
-│   │   ├── 00-fff-defaults.ts — PI_FFF_MODE=override, no $HOME index
 │   │   ├── 00-paste-chips.ts — [Image #N] / [Paste #N] chips
 │   │   ├── paste-images.ts   — decode pasted images to agent/vision/
 │   │   ├── efficiency/       — compress, fold, Flash compact, deferred
-│   │   │                       tools, memory inject, git checkpoints,
-│   │   │                       thinking-router
+│   │   │                       tools, memory inject, thinking-router
 │   │   ├── context-efficiency.ts — early compact on small windows
-│   │   ├── cursor-lazy/      — Cursor provider from disk-cached catalog
+│   │   ├── cursor-lazy/      — Cursor provider, loaded on demand by /cursor-load
 │   │   ├── vision-router.ts  — auto vision for pasted images
-│   │   ├── worker-model.ts   — OpenCode usage-out → ClinePass (workers + vision)
+│   │   ├── worker-model.ts   — worker model chain, OpenCode usage-out → ClinePass
 │   │   ├── opencode-fallback.ts — shared usage-limit detection
 │   │   ├── sol-1m-alias.ts   — gpt-5.6-sol-1m → upstream gpt-5.6-sol
 │   │   └── pi-tool-repair.json
 │   ├── npm/                  — pi packages (pi-subagents, vim, …)
 │   ├── prompts/              — /diffing /plan /review /finish /commit
-│   │                           /explore /implement /auto-plan
+│   │                           /explore /implement /verify /debug /delegate /claude-review
 │   ├── themes/               — rose-pine (high-contrast TUI syntax)
 │   ├── settings.json         — xai/grok-4.6 default, Ctrl+P cycle,
 │   │                           compact TUI, nvim editor
@@ -65,10 +66,7 @@ Piolium is not loaded globally. Install it in the target repo when you audit.
 - Diffs: inspect first (`summary` → `--path` files/slice). Path-scoped
   `git diff` next. `diff-reader` last, never the whole tree.
 - Diffing review loop: `/plan` before coding, `/review` hands the diff to
-  you, `/finish` applies feedback. Opt-in `/auto-plan` (herdr only) adds
-  bounded, conflict-safe automation: dependency-aware item scheduler with
-  isolated worktrees and fresh implementer/reviewer sessions, or a single
-  independent reviewer pane — either way it stops at LGTM/BLOCKED.
+  you, `/finish` applies feedback.
 - Extensions hot-reload with `/reload`.
 
 ## User-message jump patch (re-apply after pi updates)
