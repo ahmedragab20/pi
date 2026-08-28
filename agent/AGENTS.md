@@ -126,10 +126,10 @@ When the user starts `/goal`, keep working that task across re-anchored cycles u
 - Criteria are the contract; the roadmap (`set_roadmap` / `step`) is the plan. Both live in the goal file, not in your head.
 - Record proof with the `goal` tool (`evidence`, then `cycle` / `await_*` / `blocked` / `done`). Never mark a criterion met in prose only, and never from a worker's report — read the diff, run the check, evidence what you saw.
 - **Plan before code is enforced:** `write`/`edit` inside the project are blocked until `goal plan_approved` records the human's verdict (or their waiver).
-- `goal done` is rejected until every criterion is evidenced **and** the human review is newer than the last evidence change.
+- `goal done` is rejected until every criterion is evidenced **and** the human review is newer than the last evidence change. The loop closes itself the moment that gate is satisfied — when it says so, stop and report.
 - Drain every background spawn (`get_subagent_result`) before you `goal cycle` — a handle that crosses the boundary unread costs a re-spawn.
 - The extension auto-continues and compacts only when the window is actually filling, so treat anything above the cycle marker as stale, not gone.
-- `/goal stop` means stop. Three cycles with no new evidence and no tree change blocks the loop.
+- `/goal stop` means stop, `/goal done` closes the goal on the spot. Three cycles with no new evidence and no tree change blocks the loop.
 
 This is the allowed exception to "don't keep going" — not an exception to accuracy, evidence, or human gates.
 

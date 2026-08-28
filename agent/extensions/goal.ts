@@ -105,6 +105,8 @@ interface GoalState {
 	stallCount: number;
 	lastFingerprint?: string;
 	blockedReason?: string;
+	/** Why a done goal closed, when it was not the plain evidenced+reviewed path. */
+	doneNote?: string;
 	log: CycleLog[];
 	agents: PendingAgent[];
 	updatedAt: number;
@@ -250,6 +252,29 @@ function activeStep(s: GoalState): Step | undefined {
 
 function reviewStale(s: GoalState): boolean {
 	return s.reviewed && s.reviewSerial !== s.evidenceSerial;
+}
+
+/** The done gate: every criterion evidenced, review newer than the last change. */
+function goalSatisfied(s: GoalState): boolean {
+	return (
+		s.criteria.length > 0 &&
+		s.criteria.every((c) => c.met && c.evidence) &&
+		s.reviewed &&
+		!reviewStale(s)
+	);
+}
+
+/** What is still standing between the goal and done, in human words. */
+function missingForDone(s: GoalState): string[] {
+	const out: string[] = [];
+	if (s.criteria.length === 0) return ["no criteria recorded"];
+	const unmet = s.criteria.filter((c) => !c.met || !c.evidence);
+	if (unmet.length > 0) {
+		out.push(`not evidenced: ${unmet.map((c) => c.id).join(", ")}`);
+	}
+	if (!s.reviewed) out.push("no human review recorded");
+	else if (reviewStale(s)) out.push("evidence changed after the human review");
+	return out;
 }
 
 /** Text key used to carry state across a criteria/roadmap rewrite. */
@@ -417,6 +442,9 @@ function renderMarkdown(s: GoalState): string {
 	if (s.blockedReason) {
 		lines.push("## Blocked", "", s.blockedReason, "");
 	}
+	if (s.doneNote) {
+		lines.push("## Closed", "", s.doneNote, "");
+	}
 	if (s.agents.length > 0) {
 		lines.push("## Background agents not read back", "");
 		for (const a of s.agents) {
@@ -456,6 +484,7 @@ function formatShort(s: GoalState): string {
 	}
 	if (s.nextSlice) rows.push(`next: ${s.nextSlice}`);
 	if (s.blockedReason) rows.push(`blocked: ${s.blockedReason}`);
+	if (s.doneNote) rows.push(`closed: ${s.doneNote}`);
 	if (s.agents.length > 0) {
 		rows.push(
 			`background agents not read back: ${s.agents.map((a) => `${a.id} (${a.description})`).join(", ")}`,
@@ -550,6 +579,7 @@ export default function (pi: ExtensionAPI) {
 		stallCount: raw.stallCount ?? 0,
 		lastFingerprint: raw.lastFingerprint,
 		blockedReason: raw.blockedReason,
+		doneNote: raw.doneNote,
 		log: raw.log ?? [],
 		agents: raw.agents ?? [],
 		updatedAt: raw.updatedAt ?? 0,
@@ -670,7 +700,7 @@ export default function (pi: ExtensionAPI) {
 		lines.push(
 			"Chat history is untrusted and may be a compaction leftover. Re-read the goal file, and re-read every file you are about to change.",
 			"Record proof with `goal evidence` the moment you see it. End every slice with `goal cycle` / `await_plan` / `await_review` / `blocked` / `done` — never just stop.",
-			"`goal done` is rejected until every criterion has evidence AND a human review recorded after the last evidence change.",
+			"`goal done` is rejected until every criterion has evidence AND a human review recorded after the last evidence change. The goal closes itself the moment that gate is satisfied — when it does, stop and report; the user can also close it early with `/goal done`.",
 			"Workers stay on chores; you own the thinking, every non-mechanical edit, and the review of what they return. Plan approval before product code.",
 		);
 		return lines.join("\n");
@@ -795,6 +825,17 @@ export default function (pi: ExtensionAPI) {
 		} catch {
 			return "";
 		}
+	};
+
+	/** Shut the loop down for good. The only place phase becomes "done". */
+	const closeGoal = (ctx: ExtensionContext, note?: string) => {
+		if (!state) return;
+		state.phase = "done";
+		state.autoContinue = false;
+		state.lastAction = "done";
+		state.doneNote = note;
+		persist();
+		refreshWidget(ctx);
 	};
 
 	const noGoal = (action: GoalAction) => ({
@@ -1062,14 +1103,14 @@ export default function (pi: ExtensionAPI) {
 		name: "goal",
 		label: "Goal",
 		description:
-			"Manage the active /goal loop. The on-disk goal file is the record; chat is not. Actions: status; set_criteria (criteria[], force?); set_roadmap (roadmap[]); step (id, state); plan_approved (note); evidence (id, evidence, met?); cycle (summary, next); await_plan; await_review; reviewed; blocked (reason); done. Evidence must name a command and its real output, a file:line, or the assertion that went green. done is rejected until every criterion has evidence AND a human review recorded after the last evidence change.",
+			"Manage the active /goal loop. The on-disk goal file is the record; chat is not. Actions: status; set_criteria (criteria[], force?); set_roadmap (roadmap[]); step (id, state); plan_approved (note); evidence (id, evidence, met?); cycle (summary, next); await_plan; await_review; reviewed; blocked (reason); done. Evidence must name a command and its real output, a file:line, or the assertion that went green. done is rejected until every criterion has evidence AND a human review recorded after the last evidence change; once that gate is satisfied the goal closes itself on reviewed/cycle, so done is usually just confirmation.",
 		promptSnippet:
 			"When a /goal loop is active, record evidence and end every slice with this tool. Chat is not memory.",
 		promptGuidelines: [
 			"A goal loop's record is its on-disk file. Re-read it at the start of a cycle; never take progress from chat.",
 			"Call goal evidence the moment a criterion is proven, with the output you actually saw. Never mark progress in prose only.",
 			"End every slice with goal cycle / await_plan / await_review / blocked / done.",
-			"goal done is invalid until every criterion has evidence and the human review is newer than the last evidence change.",
+			"goal done is invalid until every criterion has evidence and the human review is newer than the last evidence change. The loop closes itself as soon as that holds — when the tool says the goal closed, stop working it.",
 		],
 		parameters: GoalParams,
 
@@ -1079,7 +1120,8 @@ export default function (pi: ExtensionAPI) {
 			if (
 				state.phase === "done" &&
 				params.action !== "status" &&
-				params.action !== "blocked"
+				params.action !== "blocked" &&
+				params.action !== "done"
 			) {
 				return fail(params.action, "goal is already done — /goal <task> starts a new one");
 			}
@@ -1207,6 +1249,20 @@ export default function (pi: ExtensionAPI) {
 						);
 					}
 					if (state.phase === "stopped") return fail("cycle", "goal is stopped");
+					// Nothing left to cycle towards: close instead of spinning.
+					if (goalSatisfied(state)) {
+						closeGoal(ctx);
+						if (ctx.hasUI) {
+							ctx.ui.notify(
+								`goal complete · ${metCount(state)}/${state.criteria.length} evidenced and reviewed`,
+								"info",
+							);
+						}
+						return ok(
+							"cycle",
+							"Every criterion is evidenced and the review is current — the goal closed itself. End the turn and report what shipped.",
+						);
+					}
 					const porcelain = await snapshotGit(ctx);
 					// A session event could have cleared the goal while git ran.
 					if (!state) return noGoal("cycle");
@@ -1299,6 +1355,19 @@ export default function (pi: ExtensionAPI) {
 					state.reviewed = true;
 					state.reviewSerial = state.evidenceSerial;
 					state.lastAction = "reviewed";
+					if (goalSatisfied(state)) {
+						closeGoal(ctx);
+						if (ctx.hasUI) {
+							ctx.ui.notify(
+								`goal complete · ${metCount(state)}/${state.criteria.length} evidenced and reviewed`,
+								"info",
+							);
+						}
+						return ok(
+							"reviewed",
+							"Review recorded and every criterion is evidenced — the goal closed itself. Stop working it; report what shipped.",
+						);
+					}
 					persist();
 					refreshWidget(ctx);
 					return ok(
@@ -1319,6 +1388,14 @@ export default function (pi: ExtensionAPI) {
 				}
 
 				case "done": {
+					if (state.phase === "done") {
+						return ok(
+							"done",
+							state.doneNote
+								? `Goal already closed — ${state.doneNote}`
+								: "Goal complete already: it closed itself when the review landed.",
+						);
+					}
 					if (state.criteria.length === 0) return fail("done", "no criteria");
 					const unmet = state.criteria.filter((c) => !c.met || !c.evidence);
 					if (unmet.length > 0) {
@@ -1339,11 +1416,7 @@ export default function (pi: ExtensionAPI) {
 							"evidence changed after the human review — take it back through /review, then goal reviewed",
 						);
 					}
-					state.phase = "done";
-					state.autoContinue = false;
-					state.lastAction = "done";
-					persist();
-					refreshWidget(ctx);
+					closeGoal(ctx);
 					return ok(
 						"done",
 						"Goal complete: every criterion evidenced, human-reviewed after the last change.",
@@ -1383,6 +1456,7 @@ export default function (pi: ExtensionAPI) {
 		{ value: "status", label: "status", description: "Show the active goal" },
 		{ value: "continue", label: "continue", description: "Resume the loop" },
 		{ value: "stop", label: "stop", description: "Halt auto-continue" },
+		{ value: "done", label: "done", description: "Mark the goal complete now" },
 		{ value: "file", label: "file", description: "Print the goal file path" },
 	];
 
@@ -1439,6 +1513,42 @@ export default function (pi: ExtensionAPI) {
 				persist();
 				refreshWidget(ctx);
 				if (ctx.hasUI) ctx.ui.notify("goal stopped · /goal continue resumes", "info");
+				return;
+			}
+
+			if (sub === "done") {
+				if (!state) state = loadDisk(ctx.cwd);
+				if (!state) {
+					if (ctx.hasUI) ctx.ui.notify("No active goal", "warning");
+					return;
+				}
+				if (state.phase === "done") {
+					if (ctx.hasUI) ctx.ui.notify("Goal already done", "info");
+					return;
+				}
+				// The human outranks the gate, but they get to see what they are skipping.
+				const missing = missingForDone(state);
+				if (missing.length > 0 && ctx.hasUI) {
+					const okDone = await ctx.ui.confirm(
+						"Mark the goal done?",
+						`${missing.join("\n")}\n\nClosing it anyway is recorded in the goal file.`,
+					);
+					if (!okDone) return;
+				}
+				closeGoal(
+					ctx,
+					missing.length > 0
+						? `closed by the user with ${missing.join("; ")}`
+						: undefined,
+				);
+				if (ctx.hasUI) {
+					ctx.ui.notify(
+						missing.length > 0
+							? `goal closed by you · ${missing.join(" · ")}`
+							: "goal done · every criterion evidenced and reviewed",
+						"info",
+					);
+				}
 				return;
 			}
 

@@ -210,6 +210,7 @@ it. Chat is not memory — `~/.pi/agent/goals/<cwd-hash>/GOAL.md` is. Reload wit
 | `/goal status` | Phase, cycle, criteria, roadmap, unread agent handles |
 | `/goal stop` | Halt auto-continue |
 | `/goal continue` | Resume after a gate, stall, interrupt, or reload |
+| `/goal done` | Close the goal now — confirms first if the gate is not met |
 | `/goal file` | Print the GOAL.md path |
 
 The tool holds the gates: evidence must name what was seen (a rubber stamp is
@@ -217,7 +218,9 @@ rejected), `set_criteria` carries evidence across a rewrite and refuses to drop
 an evidenced criterion without `force`, `write`/`edit` inside the project are
 blocked until `goal plan_approved` records the human's verdict, and `goal done`
 needs every criterion evidenced **and** a review newer than the last evidence
-change. Three cycles with no new evidence and no tree change block the loop.
+change. Once that gate holds the goal closes itself on the next `reviewed` or
+`cycle` — `/goal done` closes it early, recording what was skipped in the goal
+file. Three cycles with no new evidence and no tree change block the loop.
 Compaction happens at a cycle boundary only past 55% of the window. Cycle cap
 50; `/goal continue` raises it. Skill: `skills/goal/SKILL.md`.
 

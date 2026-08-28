@@ -9,7 +9,8 @@
  * reload from disk.
  */
 
-import { existsSync, readFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { beforeEach, describe, expect, test } from "bun:test";
 import goalExtension from "../extensions/goal.ts";
@@ -50,6 +51,7 @@ function makeHarness(
 	let command: { handler: (args: string, ctx: unknown) => Promise<void> } | null =
 		null;
 	let activeTools = ["read", "bash", "edit", "write"];
+	let confirmAnswer = true;
 	let widgetFactory:
 		| ((tui: unknown, theme: unknown) => { render: () => string[] })
 		| null = null;
@@ -90,7 +92,7 @@ function makeHarness(
 		cwd,
 		ui: {
 			notify: (message: string) => notices.push(message),
-			confirm: async () => true,
+			confirm: async () => confirmAnswer,
 			editor: async () => options.criteria ?? "",
 			input: async () => "",
 			setWidget: (_name: string, factory: unknown) => {
@@ -148,6 +150,13 @@ function makeHarness(
 		setPorcelain: (value: string) => {
 			porcelain = value;
 		},
+		setConfirm: (value: boolean) => {
+			confirmAnswer = value;
+		},
+		run: async (args: string) => {
+			if (!command) throw new Error("goal command was never registered");
+			await command.handler(args, ctx);
+		},
 		goalFile: () => {
 			const status = branch[branch.length - 1]?.data as { file: string };
 			return status.file;
@@ -159,6 +168,24 @@ function makeHarness(
 }
 
 const THREE = "- [ ] tests pass\n- [ ] docs updated\n- [ ] no lint errors\n";
+
+/**
+ * Reopen a closed goal on disk. Auto-close means a satisfied gate can only be
+ * seen by a later session if that session's state file predates it, which is
+ * exactly the upgrade case the cycle/`/goal done` fallbacks exist for.
+ */
+function reopenOnDisk(cwd: string) {
+	const path = join(
+		TEST_AGENT_DIR,
+		"goals",
+		createHash("sha1").update(cwd).digest("hex").slice(0, 12),
+		"state.json",
+	);
+	const raw = JSON.parse(readFileSync(path, "utf8"));
+	raw.phase = "running";
+	raw.autoContinue = true;
+	writeFileSync(path, JSON.stringify(raw), "utf8");
+}
 
 const theme = {
 	fg: (_color: string, s: string) => s,
@@ -325,32 +352,115 @@ describe("goal loop", () => {
 		const noReview = await h.text({ action: "done" });
 		expect(noReview).toContain("no human review recorded");
 
-		await h.call({ action: "reviewed" });
+		// The last gate closing is the goal ending: reviewed shuts the loop down.
+		const auto = await h.text({ action: "reviewed" });
+		expect(auto).toContain("closed itself");
+		expect(auto).toContain("phase done");
+		expect(h.state().phase).toBe("done");
+		expect(h.state().autoContinue).toBe(false);
 
-		// A late change invalidates the review rather than sneaking past it.
-		await h.call({
+		// done after an auto-close confirms rather than errors.
+		const done = await h.text({ action: "done" });
+		expect(done).toContain("Goal complete already");
+
+		const closed = await h.text({ action: "cycle", summary: "more", next: "more" });
+		expect(closed).toContain("already done");
+	});
+
+	test("a late change invalidates the review rather than sneaking past it", async () => {
+		for (const id of ["C1", "C2", "C3"]) {
+			await h.call({
+				action: "evidence",
+				id,
+				evidence: `checked ${id} with bun test → 12 pass, 0 fail`,
+			});
+		}
+		await h.call({ action: "reviewed" });
+		reopenOnDisk(h.cwd);
+
+		const re = makeHarness({ cwd: h.cwd });
+		await re.fire("session_start", { reason: "startup" });
+		await re.call({
 			action: "evidence",
 			id: "C2",
 			evidence: "regressed: docs section is missing again",
 			met: false,
 		});
-		const stale = await h.text({ action: "done" });
-		expect(stale).toContain("not evidenced: C2");
+		expect(await re.text({ action: "done" })).toContain("not evidenced: C2");
 
-		await h.call({
+		await re.call({
 			action: "evidence",
 			id: "C2",
 			evidence: "README section restored, checked at README.md:40",
 		});
-		const staleReview = await h.text({ action: "done" });
-		expect(staleReview).toContain("evidence changed after the human review");
+		expect(await re.text({ action: "done" })).toContain(
+			"evidence changed after the human review",
+		);
 
+		expect(await re.text({ action: "reviewed" })).toContain("closed itself");
+	});
+
+	test("a satisfied gate closes the loop at the next cycle too", async () => {
+		for (const id of ["C1", "C2", "C3"]) {
+			await h.call({
+				action: "evidence",
+				id,
+				evidence: `checked ${id} with bun test → 12 pass, 0 fail`,
+			});
+		}
 		await h.call({ action: "reviewed" });
-		const done = await h.text({ action: "done" });
-		expect(done).toContain("Goal complete");
 
-		const closed = await h.text({ action: "cycle", summary: "more", next: "more" });
-		expect(closed).toContain("already done");
+		reopenOnDisk(h.cwd);
+		const restarted = makeHarness({ cwd: h.cwd });
+		await restarted.fire("session_start", { reason: "startup" });
+		const cycled = await restarted.text({
+			action: "cycle",
+			summary: "nothing left",
+			next: "nothing",
+		});
+		expect(cycled).toContain("closed itself");
+		expect(restarted.state().phase).toBe("done");
+	});
+
+	test("/goal done closes the goal and records what was skipped", async () => {
+		h.setConfirm(false);
+		await h.run("done");
+		expect(h.state().phase).not.toBe("done");
+
+		h.setConfirm(true);
+		await h.run("done");
+		const s = h.state() as unknown as { phase: string; doneNote: string };
+		expect(s.phase).toBe("done");
+		expect(s.doneNote).toContain("not evidenced: C1, C2, C3");
+		expect(s.doneNote).toContain("no human review recorded");
+		expect(readFileSync(h.goalFile(), "utf8")).toContain("## Closed");
+		expect(h.notices.at(-1)).toContain("closed by you");
+
+		await h.run("done");
+		expect(h.notices.at(-1)).toContain("already done");
+	});
+
+	test("/goal done on a met gate closes without a note", async () => {
+		for (const id of ["C1", "C2", "C3"]) {
+			await h.call({
+				action: "evidence",
+				id,
+				evidence: `checked ${id} with bun test → 12 pass, 0 fail`,
+			});
+		}
+		await h.call({ action: "reviewed" });
+		reopenOnDisk(h.cwd);
+
+		const restarted = makeHarness({ cwd: h.cwd });
+		await restarted.fire("session_start", { reason: "startup" });
+		await restarted.run("done");
+		const s = restarted.state() as unknown as {
+			phase: string;
+			doneNote?: string;
+		};
+		expect(s.phase).toBe("done");
+		expect(s.doneNote).toBeUndefined();
+		expect(restarted.notices.at(-1)).toContain("every criterion evidenced");
 	});
 
 	test("background agent handles survive the cycle boundary", async () => {

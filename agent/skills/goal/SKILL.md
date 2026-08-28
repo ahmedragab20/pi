@@ -27,7 +27,7 @@ The goal file the `goal` tool prints (`~/.pi/agent/goals/<project>/GOAL.md`). **
 3. **Cycle.** Slice finished, or your context is getting long: `goal cycle` with `summary` + `next`, then **stop talking**. The loop re-anchors you for the next slice and compacts when the window is actually filling up.
 4. **Verify.** Every criterion evidenced → read the real diff (`harness-diff-read`), run the real checks (`Agent` `tests` / `lint`), fix the nits yourself.
 5. **Review.** `/review` (diffing-start-review), print the URL, `goal await_review`. After the human approves, `goal reviewed`. Work their `/finish` feedback as ordinary slices — new evidence makes the review stale, so it goes back through `/review`.
-6. **Done.** `goal done` only when every criterion is evidenced **and** the review is newer than the last evidence change. The tool rejects anything less.
+6. **Done.** The loop **closes itself** the moment every criterion is evidenced **and** the review is newer than the last evidence change — `goal reviewed` on the last outstanding criterion ends the goal, and so does a `goal cycle` called once the gate already holds. When the tool says the goal closed, stop working it and report what shipped. `goal done` still exists as the explicit call and is rejected on anything less than that gate; the user closes it early with `/goal done`.
 
 ## `goal` tool
 
@@ -43,7 +43,7 @@ The goal file the `goal` tool prints (`~/.pi/agent/goals/<project>/GOAL.md`). **
 | `await_plan` / `await_review` | parking on a human gate — print the URL first |
 | `reviewed` | the human approved the review |
 | `blocked` | you cannot proceed (`reason`) — do not guess |
-| `done` | all evidenced + reviewed |
+| `done` | all evidenced + reviewed — usually redundant, the loop has already closed itself |
 
 End every working slice with `cycle`, `await_*`, `blocked`, or `done`. Never just stop.
 
@@ -85,7 +85,7 @@ So treat everything above the cycle marker as **stale, not absent**: it may stil
 - Compaction leftovers and your own earlier claims are untrusted. Files and command output are trusted.
 - No criterion is met because the plan said it would be, or because last cycle said so.
 - The loop blocks itself after three cycles with no new evidence and no change to the tree. If that fires, say what is actually stuck and ask.
-- `/goal stop` from the user means stop. `/goal continue` resumes.
+- `/goal stop` from the user means stop. `/goal continue` resumes. `/goal done` closes it — even with criteria still unmet, which is recorded in the goal file.
 
 ## Still in force
 
