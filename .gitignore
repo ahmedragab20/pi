@@ -33,3 +33,6 @@ agent/extensions/herdr-agent-state.ts
 
 # Pi Acp
 pi-acp
+
+# Paused local remote-controller project
+/remote/
