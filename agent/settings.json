@@ -1,9 +1,9 @@
 {
   "lastChangelogVersion": "0.84.3",
   "theme": "rose-pine",
-  "defaultProvider": "xai",
-  "defaultModel": "grok-4.6",
-  "defaultThinkingLevel": "medium",
+  "defaultProvider": "openai-codex",
+  "defaultModel": "gpt-5.6-sol",
+  "defaultThinkingLevel": "low",
   "hideThinkingBlock": false,
   "externalEditor": "nvim",
   "quietStartup": true,
@@ -28,9 +28,9 @@
     }
   },
   "enabledModels": [
-    "xai/grok-4.6",
     "openai-codex/gpt-5.6-sol",
     "openai-codex/gpt-5.6-sol-1m",
+    "xai/grok-4.6",
     "opencode-go/deepseek-v4-pro",
     "clinepass/cline-pass/deepseek-v4-pro",
     "opencode-go/deepseek-v4-flash",
@@ -50,7 +50,7 @@
   "editorPaddingX": 1,
   "outputPad": 1,
   "enableInstallTelemetry": false,
-  "treeFilterMode": "no-tools",
+  "treeFilterMode": "default",
   "tuiMode": "fullscreen",
   "fullscreenScrollbar": "hidden",
   "doubleEscapeAction": "none",
@@ -62,7 +62,7 @@
   },
   "terminal": {
     "imageWidthCells": 40,
-    "showTerminalProgress": false,
+    "showTerminalProgress": true,
     "showImages": false
   },
   "piVim": {
@@ -84,5 +84,10 @@
       "visual": "mode",
       "ex": "mode"
     }
+  },
+  "followUpMode": "one-at-a-time",
+  "transport": "auto",
+  "warnings": {
+    "anthropicExtraUsage": true
   }
 }

@@ -100,7 +100,7 @@ A worker's report is a claim, not a result. **Nothing a worker touched is done u
 
 ## Images
 
-A **multimodal lead** (`xai/grok-4.6` — the default — plus `openai-codex/gpt-5.6-sol-1m` and ClinePass kimi/mimo/qwen) sees pasted images natively. Nothing routes; there is nothing to do.
+A **multimodal lead** (`openai-codex/gpt-5.6-sol` — the default — plus `openai-codex/gpt-5.6-sol-1m`, `xai/grok-4.6`, and ClinePass kimi/mimo/qwen) sees pasted images natively. Nothing routes; there is nothing to do.
 
 A **text-only lead** (every `cursor/*` model) triggers `vision-router.ts`: it intercepts the paste, forks a headless `pi -p` child down its own model chain, and injects a `[VISION DESCRIPTION]` block before the turn reaches you.
 

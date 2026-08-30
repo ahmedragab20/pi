@@ -6,7 +6,7 @@ leader/worker and diffing-first workflow. Built for a nerd neovim user: vim
 keybindings, nvim external editor, cheap Flash workers, human-in-the-loop
 review everywhere.
 
-**pi is the active harness.** Default lead: `xai/grok-4.6` @ medium.
+**pi is the active harness.** Default lead: `openai-codex/gpt-5.6-sol` @ low.
 
 ## Architecture — Smart Lead, Workers Follow
 
@@ -31,7 +31,7 @@ The lead owns every request end to end. It reasons, implements substantively,
 and delegates only mechanical chores to cheap Flash workers, which run in
 isolated sessions with their own context windows. Flash workers use OpenCode
 Go GLM-5.3 Flash, then OpenCode Go DeepSeek V4 Flash, then ClinePass Flash as
-the last resort. A multimodal lead (`xai/grok-4.6`, `openai-codex/gpt-5.6-sol-1m`,
+the last resort. A multimodal lead (`openai-codex/gpt-5.6-sol`, `openai-codex/gpt-5.6-sol-1m`, `xai/grok-4.6`,
 ClinePass kimi/mimo/qwen) sees pasted images natively and nothing is routed.
 A text-only lead (every `cursor/*` model) triggers `extensions/vision-router.ts`,
 which forks a headless `pi -p` child down its own model chain and injects a
@@ -51,7 +51,7 @@ owns design, debugging, fixes, review; workers do one chore and never recurse.
 
 ```
 ~/.pi/agent/
-├── settings.json          — default xai/grok-4.6 @ medium, Ctrl+P cycle
+├── settings.json          — default openai-codex/gpt-5.6-sol @ low, Ctrl+P cycle
 │                             (enabledModels), compact TUI, nvim editor
 ├── models.json            — model definitions (xai/grok-4.6: 500K context,
 │                             $2/$6, long-context $4/$12 above 200K input;
@@ -97,14 +97,14 @@ owns design, debugging, fixes, review; workers do one chore and never recurse.
 
 ## Model Inventory
 
-`settings.json` is authoritative. **Default:** `xai/grok-4.6` @ medium.
+`settings.json` is authoritative. **Default:** `openai-codex/gpt-5.6-sol` @ low.
 **Ctrl+P cycles `enabledModels` (in order):**
 
 | Model | Provider | Role |
 | ------- | ---------- | ------ |
-| `xai/grok-4.6` | xai | Default lead — 500K context |
-| `openai-codex/gpt-5.6-sol` | openai-codex | Lead — 272K window |
+| `openai-codex/gpt-5.6-sol` | openai-codex | Default lead — 272K window |
 | `openai-codex/gpt-5.6-sol-1m` | openai-codex | Lead — 1.05M context |
+| `xai/grok-4.6` | xai | Lead — 500K context |
 | `opencode-go/deepseek-v4-pro` | Go bundle | Lead |
 | `clinepass/cline-pass/deepseek-v4-pro` | ClinePass | Lead — subscription quota |
 | `opencode-go/deepseek-v4-flash` | Go bundle | Worker Flash / cheap compact |
@@ -125,9 +125,9 @@ ClinePass is a custom OpenAI-compatible provider in `models.json`
 the ClinePass quota, not per-token billing. Cost figures in `models.json` are
 Cline's reference rates for usage display only.
 
-Default lead `xai/grok-4.6` is a custom merge in `models.json`: openai-responses
-API, 500K context, $2/$6 (long-context $4/$12 above 200K input), thinking
-low/medium/high/xhigh.
+Default lead `openai-codex/gpt-5.6-sol` is the built-in 272K Codex model @ low thinking.
+`xai/grok-4.6` is a custom merge in `models.json`: openai-responses API, 500K context,
+$2/$6 (long-context $4/$12 above 200K input), thinking low/medium/high/xhigh.
 
 `gpt-5.6-sol-1m` is 1.05M context (rewrites to upstream `gpt-5.6-sol`;
 long-context pricing above 272K input).
@@ -263,7 +263,7 @@ execution, not V8 compilation.
 | Gesture | What |
 | --------- | ------ |
 | `Ctrl+P` | Cycle lead model (`enabledModels` in settings.json) |
-| `Shift+Tab` | Cycle thinking level (default medium) |
+| `Shift+Tab` | Cycle thinking level (default low) |
 | `Ctrl+C` | Interrupt / abort the agent |
 | `Ctrl+X` | Clear the editor (first) / exit (second) |
 | `Esc` | pi-vim: Insert → Normal (does not abort) |
