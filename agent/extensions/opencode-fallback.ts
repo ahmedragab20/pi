@@ -43,10 +43,6 @@ export default function opencodeFallbackLib() {
 /** Map an error string to the bill that ran out. */
 export function markExhaustedFromError(text: string): void {
 	if (!isUsageLimitError(text)) return;
-	if (/cline/i.test(text)) {
-		markProviderExhausted("clinepass");
-		return;
-	}
 	if (/FreeUsageLimitError/i.test(text) || /\bopencode\/(?!go)/i.test(text)) {
 		markProviderExhausted("opencode");
 		return;

@@ -32,11 +32,8 @@
     "openai-codex/gpt-5.6-sol-1m",
     "xai/grok-4.6",
     "opencode-go/deepseek-v4-pro",
-    "clinepass/cline-pass/deepseek-v4-pro",
     "opencode-go/deepseek-v4-flash",
-    "clinepass/cline-pass/deepseek-v4-flash",
     "opencode-go/glm-5.3",
-    "clinepass/cline-pass/glm-5.3",
     "opencode-go/glm-5.3-flash"
   ],
   "packages": [
@@ -87,8 +84,5 @@
     }
   },
   "followUpMode": "one-at-a-time",
-  "transport": "auto",
-  "warnings": {
-    "anthropicExtraUsage": true
-  }
+  "transport": "auto"
 }

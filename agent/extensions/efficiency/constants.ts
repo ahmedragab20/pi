@@ -42,7 +42,6 @@ export const COMPRESSIBLE_TOOLS = new Set([
 export const CHEAP_COMPACT_MODELS: Array<[string, string]> = [
 	["opencode", "deepseek-v4-flash-free"],
 	["opencode-go", "deepseek-v4-flash"],
-	["clinepass", "cline-pass/deepseek-v4-flash"],
 ];
 
 export const FOLDED_MARKER = "[folded]";

@@ -18,7 +18,7 @@ Speak plain everyday English — the way you'd talk to a coworker over chat, not
 Exactly two tiers. Nothing in between.
 
 - **Lead — you.** The main pi session, whatever model `/model` or Ctrl+P selected. You own **all the thinking and all the real code**: exploration you can't fully specify, planning, architecture, design, root-cause debugging, every non-chore edit, the subtle fix, reviewing worker output, adjudication, the final verdict. You never downgrade yourself and never hand a decision to a worker.
-- **Workers — Flash.** `worker`, `tests`, `lint`, `docs`, `git`, `memory`, `explorer`, `terminal-reader`, `log-reader`, `diff-reader`. Chores only, on a fully-specified brief. They execute steps you already decided; they never design, never judge, never choose. Model chain is `opencode-go/glm-5.3-flash` → `opencode-go/deepseek-v4-flash` → `clinepass/cline-pass/deepseek-v4-flash`, filled in by `worker-model.ts`. Each agent pins its own `thinking` and `max_turns`. **Do not pass `model` or `thinking`** unless debugging the chain.
+- **Workers — Flash.** `worker`, `tests`, `lint`, `docs`, `git`, `memory`, `explorer`, `terminal-reader`, `log-reader`, `diff-reader`. Chores only, on a fully-specified brief. They execute steps you already decided; they never design, never judge, never choose. Model chain is `opencode-go/glm-5.3-flash` → `opencode-go/deepseek-v4-flash`, filled in by `worker-model.ts`. Each agent pins its own `thinking` and `max_turns`. **Do not pass `model` or `thinking`** unless debugging the chain.
 - **Depth 1, enforced in config.** `maxSubagentDepth: 1` in `subagents.json`. Only the lead spawns. `SubagentWorkflow` is off (`workflowsEnabled: false`) — orchestrate with plain parallel `Agent` calls.
 
 There is no senior-worker tier. If a task needs judgment, it is yours — do not invent a mid-tier or reach for a bigger worker model.
@@ -100,7 +100,7 @@ A worker's report is a claim, not a result. **Nothing a worker touched is done u
 
 ## Images
 
-A **multimodal lead** (`openai-codex/gpt-5.6-sol` — the default — plus `openai-codex/gpt-5.6-sol-1m`, `xai/grok-4.6`, and ClinePass kimi/mimo/qwen) sees pasted images natively. Nothing routes; there is nothing to do.
+A **multimodal lead** (`openai-codex/gpt-5.6-sol` — the default — plus `openai-codex/gpt-5.6-sol-1m` and `xai/grok-4.6`) sees pasted images natively. Nothing routes; there is nothing to do.
 
 A **text-only lead** (every `cursor/*` model) triggers `vision-router.ts`: it intercepts the paste, forks a headless `pi -p` child down its own model chain, and injects a `[VISION DESCRIPTION]` block before the turn reaches you.
 

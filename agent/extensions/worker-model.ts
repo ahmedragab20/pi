@@ -1,6 +1,6 @@
 /**
- * Worker models: OpenCode Go GLM Flash first, OpenCode Go DeepSeek Flash if
- * GLM is unauthed or out of usage, ClinePass last. Never switches the lead.
+ * Worker models: OpenCode Go GLM Flash first, then OpenCode Go DeepSeek Flash
+ * if GLM is unauthed or out of usage. Never switches the lead.
  *
  * Images are not routed here — a multimodal lead sees them natively, and a
  * text-only lead is covered by `vision-router.ts`, which forks a headless
@@ -30,15 +30,11 @@ type Pair = readonly [string, string];
 const FLASH: Pair[] = [
 	["opencode-go", "glm-5.3-flash"],
 	["opencode-go", "deepseek-v4-flash"],
-	["clinepass", "cline-pass/deepseek-v4-flash"],
 ];
 
 function spec([provider, id]: Pair): string {
 	return `${provider}/${id}`;
 }
-
-/** Last resort in the chain — reaching it is worth a warning. */
-const LAST_RESORT = spec(FLASH[FLASH.length - 1]!);
 
 function providerOfSpec(s: string): string {
 	return s.split("/")[0] ?? "";
@@ -64,7 +60,9 @@ function resultText(event: ToolResultEvent): string {
 	for (const c of event.content ?? []) {
 		if (c && c.type === "text" && typeof c.text === "string") parts.push(c.text);
 	}
-	const details = event.details as { error?: unknown; result?: unknown } | undefined;
+	const details = event.details as
+		| { error?: unknown; result?: unknown }
+		| undefined;
 	if (details?.error) parts.push(String(details.error));
 	if (details?.result) parts.push(String(details.result));
 	return parts.join("\n");
@@ -105,7 +103,12 @@ function waitAgent(
 			reject(new Error("fallback agent timed out"));
 		}, timeoutMs);
 		const done = (raw: unknown) => {
-			const data = raw as { id?: string; status?: string; result?: string; error?: string };
+			const data = raw as {
+				id?: string;
+				status?: string;
+				result?: string;
+				error?: string;
+			};
 			if (data.id !== id) return;
 			clearTimeout(timer);
 			offC();
@@ -123,12 +126,9 @@ function waitAgent(
 
 export default function workerModel(pi: ExtensionAPI) {
 	const retried = new Set<string>();
-	let notified = false;
-
 	pi.on("session_start", () => {
 		resetProviderExhaustion();
 		retried.clear();
-		notified = false;
 	});
 
 	pi.on("after_provider_response", (event, ctx) => {
@@ -137,8 +137,7 @@ export default function workerModel(pi: ExtensionAPI) {
 		if (
 			provider === "opencode-go" ||
 			provider === "opencode" ||
-			provider === "openai-codex" ||
-			provider === "clinepass"
+			provider === "openai-codex"
 		) {
 			markProviderExhausted(provider);
 		}
@@ -153,14 +152,6 @@ export default function workerModel(pi: ExtensionAPI) {
 		const picked = await pickModel(ctx, FLASH);
 		if (!picked) return;
 		input.model = picked;
-
-		if (picked === LAST_RESORT && ctx.hasUI && !notified) {
-			notified = true;
-			ctx.ui.notify(
-				"OpenCode Go unavailable or out of usage — workers using ClinePass",
-				"warning",
-			);
-		}
 	});
 
 	pi.on("tool_result", async (event, ctx) => {
@@ -222,9 +213,7 @@ export default function workerModel(pi: ExtensionAPI) {
 				content: [
 					{
 						type: "text" as const,
-						text: ok
-							? `${body}\n\n(retried on ${picked} after usage limit)`
-							: body,
+						text: ok ? `${body}\n\n(retried on ${picked} after usage limit)` : body,
 					},
 				],
 				isError: !ok,

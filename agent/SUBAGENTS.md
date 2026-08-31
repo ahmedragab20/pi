@@ -30,8 +30,7 @@ only — the worker keeps running.
 
 **Do not pass `model` or `thinking`.** Each agent file pins its own
 `thinking` and `max_turns`, and `extensions/worker-model.ts` fills the model:
-`opencode-go/glm-5.3-flash` → `opencode-go/deepseek-v4-flash` →
-`clinepass/cline-pass/deepseek-v4-flash`, skipping any provider that is
+`opencode-go/glm-5.3-flash` → `opencode-go/deepseek-v4-flash`, skipping any provider that is
 unauthed or out of usage. A spawn that fails on a usage limit is retried once
 on the next model in the chain and the tool result is replaced, so the lead
 never sees the quota error. The lead model is never switched.

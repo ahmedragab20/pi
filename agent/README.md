@@ -30,9 +30,9 @@ You → pi (the lead, any model via /model or Ctrl+P)
 The lead owns every request end to end. It reasons, implements substantively,
 and delegates only mechanical chores to cheap Flash workers, which run in
 isolated sessions with their own context windows. Flash workers use OpenCode
-Go GLM-5.3 Flash, then OpenCode Go DeepSeek V4 Flash, then ClinePass Flash as
-the last resort. A multimodal lead (`openai-codex/gpt-5.6-sol`, `openai-codex/gpt-5.6-sol-1m`, `xai/grok-4.6`,
-ClinePass kimi/mimo/qwen) sees pasted images natively and nothing is routed.
+Go GLM-5.3 Flash, then OpenCode Go DeepSeek V4 Flash. A multimodal lead
+(`openai-codex/gpt-5.6-sol`, `openai-codex/gpt-5.6-sol-1m`, or `xai/grok-4.6`)
+sees pasted images natively and nothing is routed.
 A text-only lead (every `cursor/*` model) triggers `extensions/vision-router.ts`,
 which forks a headless `pi -p` child down its own model chain and injects a
 `[VISION DESCRIPTION]` block before the lead sees the turn. There is no vision
@@ -77,7 +77,7 @@ owns design, debugging, fixes, review; workers do one chore and never recurse.
 │   ├── context-efficiency.ts — early compact on windows < 500k
 │   ├── cursor-lazy/       — Cursor provider, loaded on demand by /cursor-load
 │   ├── vision-router.ts   — auto vision for pasted images
-│   ├── worker-model.ts    — worker model chain (OpenCode Go Flash → DeepSeek V4 Flash → ClinePass)
+│   ├── worker-model.ts    — worker model chain (OpenCode Go GLM Flash → DeepSeek V4 Flash)
 │   ├── opencode-fallback.ts — shared usage-limit detection
 │   ├── security-gate.ts   — confirms risky commands, blocks protected paths
 │   ├── todo.ts            — live task list behind /todos
@@ -106,24 +106,15 @@ owns design, debugging, fixes, review; workers do one chore and never recurse.
 | `openai-codex/gpt-5.6-sol-1m` | openai-codex | Lead — 1.05M context |
 | `xai/grok-4.6` | xai | Lead — 500K context |
 | `opencode-go/deepseek-v4-pro` | Go bundle | Lead |
-| `clinepass/cline-pass/deepseek-v4-pro` | ClinePass | Lead — subscription quota |
 | `opencode-go/deepseek-v4-flash` | Go bundle | Worker Flash / cheap compact |
-| `clinepass/cline-pass/deepseek-v4-flash` | ClinePass | Worker Flash — subscription quota |
 | `opencode-go/glm-5.3` | Go bundle | Lead |
-| `clinepass/cline-pass/glm-5.3` | ClinePass | Lead — subscription quota |
 | `opencode-go/glm-5.3-flash` | Go bundle | Worker Flash |
 
 Cursor models are deliberately out of the Ctrl+P cycle. The Cursor provider is no longer registered at startup, so `enabledModels` cannot resolve `cursor/*` entries there and listing them only produced boot warnings. Run `/cursor-load` once to register the provider, then pick Cursor models with `/model`.
 
-Everything else stays on `/model` (not the cycle): Terra, MiniMax, and the
-remaining ClinePass slugs. `opencode/deepseek-v4-flash-free` is auto-provisioned
-outside the cycle and used by `efficiency/cheap-compact.ts` for compaction.
-
-ClinePass is a custom OpenAI-compatible provider in `models.json`
-(`https://api.cline.bot/api/v1`). Auth is `$CLINE_API_KEY` — create a key at
-[app.cline.bot](https://app.cline.bot) → Settings → API Keys. Hits count against
-the ClinePass quota, not per-token billing. Cost figures in `models.json` are
-Cline's reference rates for usage display only.
+Everything else stays on `/model` (not the cycle). The
+`opencode/deepseek-v4-flash-free` model is auto-provisioned outside the cycle
+and used by `efficiency/cheap-compact.ts` for compaction.
 
 Default lead `openai-codex/gpt-5.6-sol` is the built-in 272K Codex model @ low thinking.
 `xai/grok-4.6` is a custom merge in `models.json`: openai-responses API, 500K context,
@@ -148,9 +139,8 @@ long-context pricing above 272K input).
 | `diff-reader` | flash | none | Compress a **path-scoped** dump (inspect first) |
 
 Workers are **depth 1** — they never spawn workers. Flash workers use
-`opencode-go/glm-5.3-flash`, falling back to `opencode-go/deepseek-v4-flash`,
-then `clinepass/cline-pass/deepseek-v4-flash` (last resort) when the earlier
-options are unauthed **or out of usage**. Each agent pins its own `thinking`
+`opencode-go/glm-5.3-flash`, falling back to `opencode-go/deepseek-v4-flash`
+when the first option is unauthed **or out of usage**. Each agent pins its own `thinking`
 and `max_turns` in frontmatter. The lead is never switched
 (`extensions/worker-model.ts`). Spawn with `Agent({ subagent_type, prompt, description })`.
 Background: `run_in_background: true`; await with `get_subagent_result` or `/agents`.
@@ -309,4 +299,4 @@ execution, not V8 compilation.
 - Piolium is not a global package. Install it in the repo you are auditing.
 - TUI: tool/user cards use rose-pine `surface`/`overlay`. Code blocks use the high-contrast rose-pine syntax map (iris keywords, rose functions, foam types/vars, gold strings/numbers). Pasted images and long inserts become `[Image #N]` / `[Paste #N · …]` chips (`extensions/00-paste-chips.ts`).
 - Deferred tools: core coding tools stay on; package extras start off (`tool_search` / `/tools`).
-- Auth: `opencode-go` and `opencode` API keys are in `~/.pi/agent/auth.json` (via `/login`). Cursor auth is the Cursor provider. ClinePass is `$CLINE_API_KEY` (app.cline.bot → Settings → API Keys).
+- Auth: `opencode-go` and `opencode` API keys are in `~/.pi/agent/auth.json` (via `/login`). Cursor auth is the Cursor provider.
