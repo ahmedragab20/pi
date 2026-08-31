@@ -36,7 +36,7 @@ diffing-first workflow — stored as a dotfiles-style git repo at `~/.pi`.
 │   │   ├── opencode-fallback.ts — shared usage-limit detection
 │   │   ├── sol-1m-alias.ts   — gpt-5.6-sol-1m → upstream gpt-5.6-sol
 │   │   └── pi-tool-repair.json
-│   ├── npm/                  — pi packages (pi-subagents, vim, …)
+│   ├── npm/                  — pi packages (pi-subagents, vim, voice, …)
 │   ├── prompts/              — /diffing /plan /review /finish /commit
 │   │                           /explore /implement /verify /debug /delegate /claude-review
 │   ├── themes/               — rose-pine (high-contrast TUI syntax)
