@@ -4,6 +4,7 @@
 
 # Machine-specific / personal
 /agent/trust.json
+/models/
 
 # Cursor SDK generated state (auto-maintained by cursor-lazy)
 /agent/cursor-sdk.json
