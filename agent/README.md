@@ -268,7 +268,6 @@ execution, not V8 compilation.
 | `/tree` `/fork` `/compact` | Session tools |
 | `/goal <task>` | Loop until criteria are evidenced + reviewed |
 | `/agents` | Manage / view / stop / steer running workers |
-| `/voice` | Dictate into the prompt — local sherpa-onnx Whisper STT (`rpiv-voice`); first run downloads the model (~198 MB), then fully offline |
 | `/microcompact` `/tools` `/memory` `/thinking-router` | Token controls |
 | `pi -c` | Continue most recent session |
 | `pi -r` | Browse and resume a session |
