@@ -29,6 +29,7 @@ export const CORE_IF_PRESENT = [
 	"ask_user_question",
 	"todo",
 	"goal",
+	"agent_browser",
 ] as const;
 
 export const COMPRESSIBLE_TOOLS = new Set([
