@@ -1,0 +1,151 @@
+{
+	"assumptions": [
+		"Phase 1 only — interactive TUI explorer, HTML/SVG and Mermaid export are later phases built on the same saved-graph schema.",
+		"tests/visualise-stubs.ts exists only because bun cannot load real pi-tui (fs.globSync); the stubs faithfully mirror visibleWidth/truncateToWidth.",
+		"The graph JSON under ~/.pi/agent/visualisations/ is the durable model contract — renderers can be added without changing what the agent emits."
+	],
+	"edges": [
+		{
+			"from": "user",
+			"label": "invokes",
+			"to": "cmd"
+		},
+		{
+			"from": "cmd",
+			"label": "extracts",
+			"to": "ctx"
+		},
+		{
+			"from": "ctx",
+			"label": "embeds",
+			"to": "kickoff"
+		},
+		{
+			"from": "kickoff",
+			"label": "sendUserMessage",
+			"to": "agent"
+		},
+		{
+			"from": "agent",
+			"label": "structured graph",
+			"to": "tool"
+		},
+		{
+			"from": "tool",
+			"to": "validate"
+		},
+		{
+			"from": "validate",
+			"label": "valid",
+			"to": "render"
+		},
+		{
+			"from": "render",
+			"label": "saves",
+			"to": "persist"
+		},
+		{
+			"from": "validate",
+			"label": "Error: fix + retry",
+			"to": "agent"
+		}
+	],
+	"groups": [
+		{
+			"id": "ui",
+			"label": "Interaction"
+		},
+		{
+			"id": "brain",
+			"label": "Agent"
+		},
+		{
+			"id": "engine",
+			"label": "Tool pipeline"
+		}
+	],
+	"kind": "flowchart",
+	"nodes": [
+		{
+			"group": "ui",
+			"id": "user",
+			"label": "User"
+		},
+		{
+			"group": "ui",
+			"id": "cmd",
+			"label": "/visualise command",
+			"note": "parseArgs: topic + --repo/--conversation/--last"
+		},
+		{
+			"group": "ui",
+			"id": "ctx",
+			"label": "Context source",
+			"note": "auto-infer branch, repo, last, or full conversation"
+		},
+		{
+			"group": "ui",
+			"id": "kickoff",
+			"label": "Kickoff prompt"
+		},
+		{
+			"group": "brain",
+			"id": "agent",
+			"label": "Lead agent",
+			"note": "researches topic, picks diagram kind"
+		},
+		{
+			"group": "engine",
+			"id": "tool",
+			"label": "render_visualisation tool"
+		},
+		{
+			"group": "engine",
+			"id": "validate",
+			"label": "Validation"
+		},
+		{
+			"group": "engine",
+			"id": "render",
+			"label": "ASCII render"
+		},
+		{
+			"group": "engine",
+			"id": "persist",
+			"label": "JSON persistence"
+		}
+	],
+	"notes": [
+		{
+			"ref": "cmd",
+			"text": "Flags parsed anywhere in args; default mode auto-infers from the conversation branch (user + assistant text parts)."
+		},
+		{
+			"ref": "kickoff",
+			"text": "Idle → delivered immediately; mid-run → queued as followUp. Bails with a warning if no topic, no conversation, and no --repo."
+		},
+		{
+			"ref": "agent",
+			"text": "The agent owns all the thinking: research, diagram-kind choice, node/edge/note content. The tool owns only validation, rendering, persistence."
+		},
+		{
+			"ref": "validate",
+			"text": "Rejects empty nodes, duplicate node/group ids, dangling edge refs, unknown group refs, unresolvable note refs. Errors return as tool text, not exceptions."
+		},
+		{
+			"ref": "render",
+			"text": "Deterministic: BFS-depth node ordering, cycle-safe, every line ≤ 100 cols. Notes numbered with [ref] anchors; assumptions and sources rendered as sections."
+		},
+		{
+			"ref": "persist",
+			"text": "Saved as <timestamp>-<slug>.json under ~/.pi/agent/visualisations/; outputDir is injectable so tests use a temp dir."
+		}
+	],
+	"sources": [
+		"~/.pi/agent/extensions/visualise.ts",
+		"~/.pi/agent/tests/visualise.test.ts",
+		"~/.pi/agent/tests/visualise-stubs.ts",
+		"pi docs: docs/extensions.md (registerCommand/registerTool/promptGuidelines)"
+	],
+	"title": "/visualise — Phase 1 Architecture (hybrid, ASCII-first)"
+}
