@@ -41,7 +41,8 @@
     "npm:@juicesharp/rpiv-ask-user-question",
     "npm:pi-vim",
     "npm:pi-lens",
-    "npm:@tintinweb/pi-subagents"
+    "npm:@tintinweb/pi-subagents",
+    "npm:pi-intercom"
   ],
   "showHardwareCursor": false,
   "editorPaddingX": 1,

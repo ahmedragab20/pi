@@ -214,6 +214,38 @@ export default function workerModel(pi: ExtensionAPI) {
 		if (picked) input.model = picked;
 	});
 
+	const offResolve = pi.events.on("worker-model:rpc:resolve", (raw) => {
+		const request = raw as { requestId?: string };
+		if (!request.requestId) return;
+		const channel = `worker-model:rpc:resolve:reply:${request.requestId}`;
+		const ctx = sessionCtx;
+		if (!ctx) {
+			pi.events.emit(channel, { success: false, error: "No active session" });
+			return;
+		}
+		void pickModel(ctx, FLASH).then(
+			(model) => pi.events.emit(channel, { success: true, data: model }),
+			(error) =>
+				pi.events.emit(channel, {
+					success: false,
+					error: error instanceof Error ? error.message : String(error),
+				}),
+		);
+	});
+
+	const offTrack = pi.events.on("worker-model:track-background", (raw) => {
+		const tracked = raw as {
+			agentId?: string;
+			input?: AgentInput;
+			model?: string;
+		};
+		if (!tracked.agentId || !tracked.input) return;
+		pendingBackground.set(tracked.agentId, {
+			input: { ...tracked.input },
+			model: tracked.model ?? "",
+		});
+	});
+
 	pi.on("tool_result", async (event, ctx) => {
 		if (event.toolName !== "Agent") return;
 		sessionCtx = ctx;
@@ -327,6 +359,8 @@ export default function workerModel(pi: ExtensionAPI) {
 	});
 
 	pi.on("session_shutdown", () => {
+		offResolve();
+		offTrack();
 		offCompleted();
 		offFailed();
 	});

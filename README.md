@@ -35,6 +35,8 @@ diffing-first workflow — stored as a dotfiles-style git repo at `~/.pi`.
 │   │   ├── worker-model.ts   — worker model chain, OpenCode usage-out → ClinePass
 │   │   ├── opencode-fallback.ts — shared usage-limit detection
 │   │   ├── sol-1m-alias.ts   — gpt-5.6-sol-1m → upstream gpt-5.6-sol
+│   │   ├── btw.ts            — /btw side question overlay
+│   │   ├── collaborate.ts    — cheap workers + balanced Herdr peer teams
 │   │   └── pi-tool-repair.json
 │   ├── npm/                  — pi packages (pi-subagents, vim, pi-lens, …)
 │   ├── prompts/              — /diffing /plan /review /finish /commit

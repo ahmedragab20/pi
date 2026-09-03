@@ -20,8 +20,10 @@
 /agent/tmp/
 /agent/memory/
 
-# Goal-loop state (per-cwd GOAL.md + state.json)
+# Goal-loop and collaboration runtime state
 /agent/goals/
+/agent/collaborations/
+/agent/intercom/
 
 # Symlink to local dev checkout (leaks absolute path)
 /agent/extensions/diffing

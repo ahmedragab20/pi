@@ -81,7 +81,9 @@ owns design, debugging, fixes, review; workers do one chore and never recurse.
 │   ├── opencode-fallback.ts — shared usage-limit detection
 │   ├── security-gate.ts   — confirms risky commands, blocks protected paths
 │   ├── todo.ts            — live task list behind /todos
+│   ├── btw.ts             — /btw side question overlay (no tools, no history)
 │   ├── goal.ts            — /goal loop: criteria, roadmap, evidence, gates
+│   ├── collaborate.ts     — cheap workers + balanced Herdr peer teams
 │   ├── sol-1m-alias.ts    — openai-codex/gpt-5.6-sol-1m → gpt-5.6-sol
 │   └── pi-tool-repair.json — grammar recovery for kimi/glm/qwen/minimax
 ├── npm/                   — pi packages (pi-subagents, vim, …)
@@ -91,7 +93,7 @@ owns design, debugging, fixes, review; workers do one chore and never recurse.
 ├── tmp/                   — gitignored: tool-dumps
 ├── memory/                — gitignored: global MEMORY.md slugs
 ├── goals/                 — gitignored: per-cwd GOAL.md + state.json
-├── tests/                 — bun test for the /goal state machine
+├── tests/                 — bun test for /goal, /btw, and extension gates
 └── vision/                — decoded pasted images (pruned after 7 days)
 ```
 
@@ -165,6 +167,35 @@ Huge bash/read results are capped at ingest (dump under `~/.pi/agent/tmp/tool-du
 Diffs: inspect first (`summary` with `directories` + optional `--exclude lockfiles` → `--path` files/hunks/slice/search; skill `harness-diff-read`). If inspect ignores `--path` or has no session: path-scoped `git diff`. `diff-reader` last, never the whole tree.
 
 `/thinking-router` sets thinking from the prompt (Shift+Tab locks until `/thinking-router on`).
+
+## Side questions (`/btw`)
+
+Ask something about the current session without adding it to the transcript or interrupting the lead. Isolated `complete()` — full conversation context, no tools, overlay, in-memory history only. Reload with `/reload`.
+
+| Command | What |
+| --------- | ------ |
+| `/btw <question>` | Answer in a dismissible overlay from session context only |
+| `/btw` | Reopen the last side question |
+
+Works while the lead is streaming. Esc / Enter / Space dismiss. ↑↓ scroll, ←→ or `[` `]` step history, `c` copies the answer, `x` clears earlier side questions.
+
+## Collaboration (/collaborate)
+
+Coordinate a team: the lead owns planning, review, and integration; existing
+cheap Flash workers run each exact task through pi-subagents, and visible
+peers launch in dedicated Herdr team tabs with at most four balanced panes per
+tab (no repeated right-column layout). Task paths have exclusive ownership —
+workers treat everything else as read-only — writing tasks spawn in worktrees,
+and completed worker output waits for lead review. Reload with `/reload`.
+
+```
+/collaborate start <goal>
+/collaborate add worker --paths=src/a.ts -- <exact brief and targeted check>
+/collaborate add tests --after=T1 --paths=tests/a.test.ts -- <exact brief and targeted check>
+/collaborate run all
+/collaborate peer <name> [cwd]
+/collaborate status
+```
 
 ## Diffing is core
 
