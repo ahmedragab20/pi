@@ -3,7 +3,7 @@
   "private": true,
   "scripts": {
     "typecheck": "tsc -p ../tsconfig.json",
-    "test": "bun test --preload ../tests/goal-stubs.ts ../tests/goal.test.ts ../tests/microcompact.test.ts && bun test ../tests/compaction-coordinator.test.ts ../tests/context-efficiency.test.ts ../tests/worker-model.test.ts ../tests/security-gate.test.ts ../tests/btw.test.ts ../tests/collaborate.test.ts",
+    "test": "bun test --preload ../tests/goal-stubs.ts ../tests/goal.test.ts ../tests/microcompact.test.ts ../tests/collaborate.test.ts && bun test ../tests/compaction-coordinator.test.ts ../tests/context-efficiency.test.ts ../tests/worker-model.test.ts ../tests/security-gate.test.ts ../tests/btw.test.ts",
     "check": "npm run typecheck && npm test"
   },
   "dependencies": {

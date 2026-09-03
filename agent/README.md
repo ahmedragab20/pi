@@ -188,13 +188,22 @@ tab (no repeated right-column layout). Task paths have exclusive ownership —
 workers treat everything else as read-only — writing tasks spawn in worktrees,
 and completed worker output waits for lead review. Reload with `/reload`.
 
+`/collaborate start <goal>` opens the ledger **and kicks the lead**. It does
+not spawn workers or peers. Status `collab · add tasks` means zero tasks —
+the lead must `collaborate add` exact briefs, then `collaborate run`. A
+finished worker is `review` until the lead `accept`s (merge) or `reject`s;
+dependents wait for accept. `/collaborate` with no args opens the board.
+Reload resumes the ledger. Cap 3 running.
+
 ```
 /collaborate start <goal>
 /collaborate add worker --paths=src/a.ts -- <exact brief and targeted check>
 /collaborate add tests --after=T1 --paths=tests/a.test.ts -- <exact brief and targeted check>
 /collaborate run all
+/collaborate accept T1
 /collaborate peer <name> [cwd]
-/collaborate status
+/collaborate assign T2 <name>
+/collaborate
 ```
 
 ## Diffing is core

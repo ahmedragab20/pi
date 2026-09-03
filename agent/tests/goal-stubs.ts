@@ -43,6 +43,18 @@ class Text {
 	) {}
 }
 
+function matchesKey(data: string, key: string): boolean {
+	if (key === "escape") return data === "\x1b" || data === "escape";
+	if (key === "ctrl+c") return data === "\x03" || data === "ctrl+c";
+	return data === key;
+}
+
+function truncateToWidth(text: string, width: number): string {
+	const plain = text.replace(/\x1b\[[0-9;]*m/g, "");
+	if (plain.length <= width) return text;
+	return `${plain.slice(0, Math.max(0, width - 1))}…`;
+}
+
 plugin({
 	name: "pi-extension-stubs",
 	setup(build) {
@@ -61,7 +73,7 @@ plugin({
 			loader: "object",
 		}));
 		build.module("@earendil-works/pi-tui", () => ({
-			exports: { Text },
+			exports: { Text, matchesKey, truncateToWidth },
 			loader: "object",
 		}));
 		build.module("typebox", () => ({

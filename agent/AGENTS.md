@@ -148,6 +148,17 @@ When the user starts `/goal`, keep working that task across re-anchored cycles u
 
 This is the allowed exception to "don't keep going" — not an exception to accuracy, evidence, or human gates.
 
+## Collaboration (`/collaborate`)
+
+When the user starts `/collaborate`, you are the orchestrator. **Start does not spawn anyone.** The ledger is empty until you add exact worker chores.
+
+- Explore first if you cannot already write exact briefs (`Agent` explorer for a named search).
+- Add chores with the `collaborate` tool (`add` then `run`). Write tasks need exclusive `--paths`, numbered steps, and a named check. Cap is 3 running.
+- You own planning, non-chore code, review, and integration. Do not dump the whole goal on one worker, and do not spawn `Agent()` for chores that belong on the ledger.
+- A finished worker is status `review`, not done. Read the actual diff, then `collaborate accept` (merges the worktree) or `reject` / `retry`. Dependents do not start until you accept. Do not trust the self-report.
+- `finish` only when every live task is accepted or dropped.
+- `collaborate peer` is a visible second lead-tier Herdr session. `assign` sends a ready task's contract to that peer. Never use peers for Flash chores.
+
 ## Diffing
 
 Human-in-the-loop review is the default workflow. Follow the `diffing-*` skills; prefer the `diffing_*` extension tools over raw CLI. Always print the review/plan URL **before** `await_review` / `await_plan_review`. Plans and mockup sources live under `~/.diffing/`, never in the consumer tree. Never mutate GitHub without explicit user authorization.
