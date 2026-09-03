@@ -37,3 +37,5 @@ pi-acp
 
 # Paused local remote-controller project
 /remote/
+
+agent/extensions/browser/node_modules/
