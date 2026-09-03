@@ -2,7 +2,7 @@
  * Goal loop
  *
  * `/goal <task>` starts a long-running lead loop that survives context resets.
- * The goal file on disk carries the task, acceptance criteria, roadmap,
+ * The scoped state.json on disk carries the task, acceptance criteria, roadmap,
  * evidence and cycle log — chat is never the record. Every slice ends with a
  * `goal` call; the extension re-anchors the next slice with a kickoff prompt
  * and compacts only when context is actually full. `done` needs every
@@ -12,12 +12,13 @@
 import { createHash } from "node:crypto";
 import {
 	existsSync,
+	lstatSync,
 	mkdirSync,
 	readFileSync,
 	renameSync,
 	writeFileSync,
 } from "node:fs";
-import { isAbsolute, join, relative, resolve } from "node:path";
+import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import { StringEnum } from "@earendil-works/pi-ai";
 import type {
 	ExtensionAPI,
@@ -26,6 +27,7 @@ import type {
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
+import { requestCompaction } from "./efficiency/compaction-coordinator.ts";
 
 type GoalPhase =
 	| "draft"
@@ -52,11 +54,19 @@ type GoalAction =
 
 type StepState = "todo" | "active" | "done";
 
+interface EvidenceSource {
+	toolCallId: string;
+	toolName: string;
+	outputHash: string;
+	recordedAt: number;
+}
+
 interface Criterion {
 	id: string;
 	text: string;
 	met: boolean;
 	evidence?: string;
+	evidenceSource?: EvidenceSource;
 	/** Cycle the current evidence was recorded in. */
 	cycle?: number;
 }
@@ -74,6 +84,11 @@ interface CycleLog {
 	files?: string;
 }
 
+interface TreeSnapshot {
+	fingerprint: string;
+	files: string;
+}
+
 /** A background subagent the lead spawned and has not read back yet. */
 interface PendingAgent {
 	id: string;
@@ -84,6 +99,7 @@ interface PendingAgent {
 interface GoalState {
 	version: number;
 	cwd: string;
+	sessionId: string;
 	sessionFile?: string;
 	task: string;
 	phase: GoalPhase;
@@ -95,6 +111,7 @@ interface GoalState {
 	planApproved: boolean;
 	planNote?: string;
 	reviewed: boolean;
+	reviewNote?: string;
 	/** evidenceSerial at the moment the human review was recorded. */
 	reviewSerial: number;
 	/** Bumped on every evidence change, so a stale review is detectable. */
@@ -110,7 +127,10 @@ interface GoalState {
 	log: CycleLog[];
 	agents: PendingAgent[];
 	updatedAt: number;
+	/** Human-readable mirror. */
 	file: string;
+	/** Authoritative machine state. */
+	stateFile: string;
 }
 
 interface GoalDetails {
@@ -122,12 +142,11 @@ interface GoalDetails {
 	error?: string;
 }
 
-const VERSION = 2;
+const VERSION = 3;
 const ENTRY = "goal";
 const WIDGET = "goal";
 const LOG_CAP = 12;
-const AGENT_CAP = 12;
-const AGENT_STALE_CYCLES = 3;
+const PROOF_CAP = 32;
 const STALL_LIMIT = 2;
 const NUDGE_LIMIT = 1;
 const DEFAULT_CAP = 50;
@@ -139,8 +158,32 @@ const SUMMARY_MAX = 600;
 const EVIDENCE_MIN = 12;
 /** Compact at a cycle boundary only past this much of the context window. */
 const COMPACT_AT_PERCENT = 55;
-/** Tools that write product code. Gated until the plan is approved. */
-const WRITE_TOOLS = new Set(["edit", "write", "multi_edit", "apply_patch"]);
+const SNAPSHOT_FILE_MAX_BYTES = 1024 * 1024;
+/** Tools that can mutate product files. Gated until the plan is approved. */
+const WRITE_TOOLS = new Set([
+	"edit",
+	"write",
+	"multi_edit",
+	"apply_patch",
+	"ast_grep_replace",
+]);
+const READ_ONLY_AGENTS = new Set([
+	"explorer",
+	"git",
+	"diff-reader",
+	"terminal-reader",
+	"log-reader",
+]);
+const NON_PROOF_TOOLS = new Set([
+	"goal",
+	"todo",
+	"Agent",
+	"get_subagent_result",
+]);
+const SHELL_MUTATION =
+	/(?:^|[;&|]\s*)(?:cp|mv|rm|touch|mkdir|rmdir|ln|install|patch|truncate|dd|rsync)\b|\b(?:sed\s+[^\n]*-[a-z]*i|perl\s+[^\n]*-[a-z]*pi)\b|(?:^|[^<])>{1,2}\s*[^&]|\b(?:tee|sponge)\b|\bgit\s+(?:apply|add|am|branch\s+-[dD]|cherry-pick|clean|commit|checkout|merge|mv|push|rebase|reset|restore|rm|stash|switch|tag)\b|\b(?:npm|pnpm|yarn|bun)\b[^\n;&|]{0,200}\b(?:install|i|add|remove|uninstall|update|upgrade|link|unlink)\b|\b(?:writeFile|write_text|write_bytes)\b|\bopen\s*\([^\n]*,[^\n]*["'][wax][+b]?["']/i;
+const APPROVAL_PROOF =
+	/(?:https?:\/\/\S+|(?:human|user)[^\n]{0,80}\b(?:approved|waived|reviewed)\b|\b(?:approved|waived|reviewed)\b[^\n]{0,80}(?:human|user))/i;
 /** Rubber stamps a model reaches for instead of naming what it saw. */
 const WEAK_EVIDENCE =
 	/^(it |they |that |all |everything )?(is |are |was |were |now )?(done|ok|okay|fine|good|yes|true|works?|working|worked|passed|passes|passing|green|verified|confirmed|fixed|complete|completed|success|successful|lgtm|no errors|no issues|all good|all tests pass|tests pass|looks right|looks good|should work|as planned|as expected)[.!]*$/i;
@@ -201,14 +244,20 @@ const GoalParams = Type.Object({
 	note: Type.Optional(
 		Type.String({
 			description:
-				"plan_approved: the human's verdict — the plan URL, or how they waived plan review",
+				"plan_approved/reviewed/forced criteria change: an http(s) review URL or an explicit human/user approval or waiver",
+		}),
+	),
+	source: Type.Optional(
+		Type.String({
+			description:
+				"evidence: toolCallId of the recent successful tool result that produced this proof",
 		}),
 	),
 	reason: Type.Optional(Type.String({ description: "blocked: why" })),
 	force: Type.Optional(
 		Type.Boolean({
 			description:
-				"set_criteria: allow dropping a criterion that already has evidence",
+				"set_criteria: allow dropping accepted criteria only with note proving human approval",
 		}),
 	),
 });
@@ -221,16 +270,75 @@ function slugFor(cwd: string): string {
 	return createHash("sha1").update(cwd).digest("hex").slice(0, 12);
 }
 
-function goalDir(cwd: string): string {
-	return join(getAgentDir(), "goals", slugFor(cwd));
+function sessionSlug(sessionId: string): string {
+	return createHash("sha1").update(sessionId).digest("hex").slice(0, 12);
 }
 
-function goalFile(cwd: string): string {
-	return join(goalDir(cwd), "GOAL.md");
+function goalDir(cwd: string, sessionId: string): string {
+	return join(getAgentDir(), "goals", slugFor(cwd), sessionSlug(sessionId));
 }
 
-function stateFile(cwd: string): string {
-	return join(goalDir(cwd), "state.json");
+function goalFile(cwd: string, sessionId: string): string {
+	return join(goalDir(cwd, sessionId), "GOAL.md");
+}
+
+function goalStateFile(cwd: string, sessionId: string): string {
+	return join(goalDir(cwd, sessionId), "state.json");
+}
+
+function currentSessionId(ctx: ExtensionContext): string {
+	return ctx.sessionManager.getSessionId();
+}
+
+function pathIsInsideProject(raw: unknown, cwd: string): boolean {
+	if (typeof raw !== "string" || !raw) return false;
+	const target = isAbsolute(raw) ? resolve(raw) : resolve(cwd, raw);
+	const rel = relative(resolve(cwd), target);
+	return rel !== ".." && !rel.startsWith(`..${sep}`) && !isAbsolute(rel);
+}
+
+function mutatesProject(
+	toolName: string,
+	input: Record<string, unknown>,
+	cwd: string,
+): boolean {
+	if (toolName === "bash") {
+		return (
+			typeof input.command === "string" && SHELL_MUTATION.test(input.command)
+		);
+	}
+	if (toolName === "Agent") {
+		const type =
+			typeof input.subagent_type === "string" ? input.subagent_type : "";
+		return !READ_ONLY_AGENTS.has(type.toLowerCase());
+	}
+	if (toolName === "lsp_navigation") {
+		const operation = typeof input.operation === "string" ? input.operation : "";
+		return (
+			input.apply === true &&
+			/^(?:rename|rename_file|executeCommand)$/.test(operation)
+		);
+	}
+	if (toolName === "multi_tool_use.parallel") {
+		const calls = Array.isArray(input.tool_uses) ? input.tool_uses : [];
+		return calls.some((raw) => {
+			const call = raw as {
+				recipient_name?: string;
+				parameters?: Record<string, unknown>;
+			};
+			const nestedName = call.recipient_name?.split(".").pop() ?? "";
+			return mutatesProject(nestedName, call.parameters ?? {}, cwd);
+		});
+	}
+	if (!WRITE_TOOLS.has(toolName)) return false;
+	const paths = input.paths;
+	if (Array.isArray(paths)) {
+		return (
+			paths.length === 0 || paths.some((path) => pathIsInsideProject(path, cwd))
+		);
+	}
+	const raw = input.path ?? input.file_path ?? input.filePath;
+	return raw === undefined || pathIsInsideProject(raw, cwd);
 }
 
 function clip(text: string, max: number): string {
@@ -294,12 +402,31 @@ function nextNumber(prefix: string, ids: string[]): number {
 /** Reject a criterion "proof" that is really just a claim. */
 function evidenceProblem(text: string): string | undefined {
 	const t = text.trim();
-	const say = "name the command and its real output, the file:line, or the assertion that went green";
+	const say =
+		"name the command and its real output, the file:line, or the assertion that went green";
 	// Phrase first: every rubber stamp is shorter than the length floor, so
 	// checking length first would make this branch unreachable.
 	if (WEAK_EVIDENCE.test(t)) return `"${t}" is a claim, not evidence — ${say}`;
 	if (t.length < EVIDENCE_MIN) return `too short (${t.length} chars) — ${say}`;
 	return undefined;
+}
+
+function approvalProblem(note: string): string | undefined {
+	if (APPROVAL_PROOF.test(note.trim())) return undefined;
+	return "note must contain an http(s) review URL or explicitly say the human/user approved, reviewed, or waived it";
+}
+
+function uniqueTexts(texts: string[]): string[] {
+	const seen = new Set<string>();
+	const out: string[] = [];
+	for (const raw of texts) {
+		const text = clip(raw, TEXT_MAX);
+		const key = keyOf(text);
+		if (!text || seen.has(key)) continue;
+		seen.add(key);
+		out.push(text);
+	}
+	return out;
 }
 
 function parseCriteria(text: string): string[] {
@@ -317,9 +444,7 @@ function parseCriteria(text: string): string[] {
 }
 
 function criteriaFromTexts(texts: string[]): Criterion[] {
-	return texts
-		.map((t) => clip(t, TEXT_MAX))
-		.filter(Boolean)
+	return uniqueTexts(texts)
 		.slice(0, MAX_ITEMS)
 		.map((text, i) => ({ id: `C${i + 1}`, text, met: false }));
 }
@@ -334,19 +459,26 @@ function mergeCriteria(
 	let free = nextNumber("C", usedIds);
 	const next: Criterion[] = [];
 	const keptKeys = new Set<string>();
-	for (const raw of texts.slice(0, MAX_ITEMS)) {
-		const text = clip(raw, TEXT_MAX);
-		if (!text) continue;
+	for (const text of uniqueTexts(texts).slice(0, MAX_ITEMS)) {
 		const k = keyOf(text);
 		keptKeys.add(k);
 		const old = byKey.get(k);
 		next.push(
 			old
-				? { id: old.id, text, met: old.met, evidence: old.evidence, cycle: old.cycle }
+				? {
+						id: old.id,
+						text,
+						met: old.met,
+						evidence: old.evidence,
+						evidenceSource: old.evidenceSource,
+						cycle: old.cycle,
+					}
 				: { id: `C${free++}`, text, met: false },
 		);
 	}
-	const dropped = prev.filter((c) => c.met && !keptKeys.has(keyOf(c.text)));
+	const dropped = prev.filter(
+		(criterion) => !keptKeys.has(keyOf(criterion.text)),
+	);
 	return { next, dropped };
 }
 
@@ -358,9 +490,7 @@ function mergeRoadmap(prev: Step[], texts: string[]): Step[] {
 		prev.map((x) => x.id),
 	);
 	const next: Step[] = [];
-	for (const raw of texts.slice(0, MAX_ITEMS)) {
-		const text = clip(raw, TEXT_MAX);
-		if (!text) continue;
+	for (const text of uniqueTexts(texts).slice(0, MAX_ITEMS)) {
 		const old = byKey.get(keyOf(text));
 		next.push(
 			old
@@ -426,6 +556,11 @@ function renderMarkdown(s: GoalState): string {
 				lines.push(
 					`  - evidence${c.cycle ? ` (cycle ${c.cycle})` : ""}: ${c.evidence}`,
 				);
+				if (c.evidenceSource) {
+					lines.push(
+						`  - source: ${c.evidenceSource.toolName} ${c.evidenceSource.toolCallId} (${c.evidenceSource.outputHash})`,
+					);
+				}
 			}
 		}
 	}
@@ -438,7 +573,13 @@ function renderMarkdown(s: GoalState): string {
 			lines.push(`- [${mark}] **${x.id}** ${x.text}`);
 		}
 	}
-	lines.push("", "## Next slice", "", s.nextSlice || "(pick the next unmet criterion)", "");
+	lines.push(
+		"",
+		"## Next slice",
+		"",
+		s.nextSlice || "(pick the next unmet criterion)",
+		"",
+	);
 	if (s.blockedReason) {
 		lines.push("## Blocked", "", s.blockedReason, "");
 	}
@@ -471,7 +612,8 @@ function formatShort(s: GoalState): string {
 	const rows: string[] = [
 		s.task,
 		`phase ${s.phase} · cycle ${s.cycle}/${s.cycleCap} · ${met}/${s.criteria.length} evidenced · ${planLine(s)} · ${reviewLine(s)}`,
-		`file: ${s.file}`,
+		`state: ${s.stateFile}`,
+		`mirror: ${s.file}`,
 	];
 	for (const c of s.criteria) {
 		const ev = c.evidence ? ` — ${c.evidence}` : "";
@@ -512,8 +654,8 @@ function editorTemplate(task: string): string {
 function compactInstructions(s: GoalState): string {
 	const unmet = s.criteria.filter((c) => !c.met).map((c) => `${c.id} ${c.text}`);
 	return [
-		"GOAL LOOP cycle boundary. The on-disk goal file is the only record of progress:",
-		s.file,
+		"GOAL LOOP cycle boundary. The scoped state.json is the authoritative record:",
+		s.stateFile,
 		"",
 		"Keep, verbatim where you can:",
 		`- the goal: ${clip(s.task, 300)}`,
@@ -535,42 +677,86 @@ export default function (pi: ExtensionAPI) {
 	let state: GoalState | null = null;
 	let aborted = false;
 	let cycling = false;
+	const recentProofs = new Map<string, EvidenceSource>();
 
 	const touch = () => {
 		if (state) state.updatedAt = Date.now();
 	};
 
+	const invalidateApproval = () => {
+		if (!state) return;
+		state.planApproved = false;
+		state.planNote = undefined;
+		state.reviewed = false;
+		state.reviewNote = undefined;
+		state.phase = "draft";
+	};
+
+	const rememberProof = (event: {
+		toolCallId: string;
+		toolName: string;
+		isError?: boolean;
+		content: { type: string; text?: string }[];
+	}) => {
+		if (event.isError || NON_PROOF_TOOLS.has(event.toolName)) return;
+		const text = event.content
+			.map((part) => (part.type === "text" ? (part.text ?? "") : ""))
+			.join("\n")
+			.trim();
+		if (!text) return;
+		recentProofs.set(event.toolCallId, {
+			toolCallId: event.toolCallId,
+			toolName: event.toolName,
+			outputHash: createHash("sha256").update(text).digest("hex").slice(0, 16),
+			recordedAt: Date.now(),
+		});
+		while (recentProofs.size > PROOF_CAP) {
+			const oldest = recentProofs.keys().next().value;
+			if (typeof oldest !== "string") break;
+			recentProofs.delete(oldest);
+		}
+	};
+
 	const persist = () => {
 		if (!state) return;
 		touch();
-		const dir = goalDir(state.cwd);
+		const dir = goalDir(state.cwd, state.sessionId);
 		mkdirSync(dir, { recursive: true });
-		// tmp + rename: a kill mid-write must not leave a half-written goal.
+		// Commit authoritative JSON first; the markdown mirror may lag after a kill,
+		// but it must never claim state that was not durably recorded.
+		const jsonTmp = `${state.stateFile}.tmp`;
+		writeFileSync(jsonTmp, JSON.stringify(state, null, 2), "utf8");
+		renameSync(jsonTmp, state.stateFile);
 		const mdTmp = `${state.file}.tmp`;
 		writeFileSync(mdTmp, renderMarkdown(state), "utf8");
 		renameSync(mdTmp, state.file);
-		const jsonPath = stateFile(state.cwd);
-		const jsonTmp = `${jsonPath}.tmp`;
-		writeFileSync(jsonTmp, JSON.stringify(state, null, 2), "utf8");
-		renameSync(jsonTmp, jsonPath);
 		pi.appendEntry(ENTRY, state);
 	};
 
-	/** Fill in anything a older/partial state file is missing. */
-	const normalize = (raw: Partial<GoalState>, cwd: string): GoalState => ({
+	/** Fill in anything an older/partial session entry is missing. */
+	const normalize = (
+		raw: Partial<GoalState>,
+		cwd: string,
+		sessionId: string,
+	): GoalState => ({
 		version: VERSION,
 		cwd,
+		sessionId,
 		sessionFile: raw.sessionFile,
 		task: raw.task ?? "",
 		phase: raw.phase ?? "draft",
 		cycle: raw.cycle ?? 0,
 		cycleCap: raw.cycleCap ?? DEFAULT_CAP,
-		criteria: (raw.criteria ?? []).map((c) => ({ ...c, met: Boolean(c.met) })),
+		criteria: (raw.criteria ?? []).map((criterion) => ({
+			...criterion,
+			met: Boolean(criterion.met),
+		})),
 		roadmap: raw.roadmap ?? [],
 		nextSlice: raw.nextSlice ?? "",
 		planApproved: raw.planApproved ?? false,
 		planNote: raw.planNote,
 		reviewed: raw.reviewed ?? false,
+		reviewNote: raw.reviewNote,
 		reviewSerial: raw.reviewSerial ?? 0,
 		evidenceSerial: raw.evidenceSerial ?? 0,
 		autoContinue: raw.autoContinue ?? false,
@@ -583,16 +769,19 @@ export default function (pi: ExtensionAPI) {
 		log: raw.log ?? [],
 		agents: raw.agents ?? [],
 		updatedAt: raw.updatedAt ?? 0,
-		file: goalFile(cwd),
+		file: goalFile(cwd, sessionId),
+		stateFile: goalStateFile(cwd, sessionId),
 	});
 
-	const loadDisk = (cwd: string): GoalState | null => {
-		const path = stateFile(cwd);
+	const loadDisk = (cwd: string, sessionId: string): GoalState | null => {
+		const path = goalStateFile(cwd, sessionId);
 		if (!existsSync(path)) return null;
 		try {
 			const parsed = JSON.parse(readFileSync(path, "utf8")) as Partial<GoalState>;
-			if (parsed.cwd !== cwd || !parsed.task) return null;
-			return normalize(parsed, cwd);
+			if (parsed.cwd !== cwd || parsed.sessionId !== sessionId || !parsed.task) {
+				return null;
+			}
+			return normalize(parsed, cwd, sessionId);
 		} catch {
 			return null;
 		}
@@ -628,15 +817,7 @@ export default function (pi: ExtensionAPI) {
 				rows.push(
 					`${theme.fg("accent", "▸")} ${theme.fg("accent", step.id)} ${theme.fg("text", step.text)}`,
 				);
-			}
-			const unmet = s.criteria.filter((c) => !c.met);
-			for (const c of unmet.slice(0, 4)) {
-				rows.push(
-					`${theme.fg("dim", "○")} ${theme.fg("accent", c.id)} ${theme.fg("text", c.text)}`,
-				);
-			}
-			if (unmet.length > 4) rows.push(theme.fg("dim", `… ${unmet.length - 4} more`));
-			if (unmet.length === 0 && total > 0) {
+			} else if (total > 0 && met === total) {
 				rows.push(
 					theme.fg(
 						s.reviewed && !reviewStale(s) ? "success" : "warning",
@@ -651,22 +832,25 @@ export default function (pi: ExtensionAPI) {
 		});
 	};
 
+	const recoverDiskForEmptyBranch = (ctx: ExtensionContext): GoalState | null =>
+		ctx.sessionManager.getBranch().length === 0
+			? loadDisk(ctx.cwd, currentSessionId(ctx))
+			: null;
+
 	const reconstruct = (ctx: ExtensionContext) => {
+		const sessionId = currentSessionId(ctx);
+		const branch = ctx.sessionManager.getBranch();
 		let fromSession: GoalState | null = null;
-		for (const entry of ctx.sessionManager.getBranch()) {
+		for (const entry of branch) {
 			if (entry.type !== "custom" || entry.customType !== ENTRY) continue;
 			const data = entry.data as Partial<GoalState> | undefined;
-			// A session resumed in another directory keeps its own goal there.
 			if (!data?.task || (data.cwd && data.cwd !== ctx.cwd)) continue;
-			fromSession = normalize(data, ctx.cwd);
+			fromSession = normalize(data, ctx.cwd, sessionId);
 		}
-		const fromDisk = loadDisk(ctx.cwd);
-		// Another session may have moved the same goal on. Newest write wins.
-		if (fromSession && fromDisk) {
-			state = fromDisk.updatedAt > fromSession.updatedAt ? fromDisk : fromSession;
-		} else {
-			state = fromSession ?? fromDisk;
-		}
+		// The selected branch is authoritative. Disk is crash recovery only for a
+		// brand-new/empty branch, never a newer sibling branch or another session.
+		state = fromSession ?? recoverDiskForEmptyBranch(ctx);
+		recentProofs.clear();
 		if (state) ensureTool();
 		refreshWidget(ctx);
 	};
@@ -679,7 +863,8 @@ export default function (pi: ExtensionAPI) {
 		const unmet = s.criteria.filter((c) => !c.met).slice(0, 8);
 		const lines = [
 			"GOAL LOOP ACTIVE",
-			`File (the record): ${s.file}`,
+			`State (authoritative): ${s.stateFile}`,
+			`Markdown mirror: ${s.file}`,
 			`Phase ${s.phase} · cycle ${s.cycle}/${s.cycleCap} · ${metCount(s)}/${s.criteria.length} evidenced · ${planLine(s)} · ${reviewLine(s)}`,
 			`Task: ${clip(s.task, TASK_MAX)}`,
 		];
@@ -712,7 +897,8 @@ export default function (pi: ExtensionAPI) {
 			"Start a goal loop. Read this skill and follow it:",
 			skillPath(),
 			"",
-			`Goal file (the record): ${s.file}`,
+			`Goal state (authoritative): ${s.stateFile}`,
+			`Markdown mirror: ${s.file}`,
 			`Task: ${s.task}`,
 			have
 				? `The human accepted ${s.criteria.length} criteria — they are already in the goal file. Do not rewrite them unless the human changes them.`
@@ -735,8 +921,8 @@ export default function (pi: ExtensionAPI) {
 		const lines = [
 			`Goal loop cycle ${n}. Anything above this line is a leftover — do not take requirements or progress from it.`,
 			"",
-			`1. Read ${s.file}. That file is your memory.`,
-			`2. Follow ${skillPath()} (re-read it only if it is not in context).`,
+			`1. Read ${s.stateFile}. That JSON file is your authoritative memory.`,
+			`2. Use ${s.file} only as the human-readable mirror. Follow ${skillPath()} if it is not in context.`,
 			s.nextSlice
 				? `3. Next slice: ${s.nextSlice}`
 				: `3. Pick the next unmet criterion${step ? ` under ${step.id}` : ""}.`,
@@ -756,9 +942,9 @@ export default function (pi: ExtensionAPI) {
 	const kickoffNudge = (s: GoalState): string =>
 		[
 			"Goal loop is still active. You ended a turn without `goal cycle` / `await_plan` / `await_review` / `blocked` / `done`.",
-			"Do not invent progress. Read the goal file, then either finish the slice or call the tool.",
+			"Do not invent progress. Read the authoritative state, then either finish the slice or call the tool.",
 			"",
-			`File: ${s.file}`,
+			`State: ${s.stateFile}`,
 			formatShort(s),
 		].join("\n");
 
@@ -800,30 +986,73 @@ export default function (pi: ExtensionAPI) {
 				"info",
 			);
 		}
-		ctx.compact({
+		requestCompaction(ctx, {
+			reason: `goal-cycle-${s.cycle + 1}`,
 			customInstructions: compactInstructions(s),
+			minPercent: COMPACT_AT_PERCENT,
 			onComplete: go,
 			onError: (error) => {
 				// "Nothing to compact" / "Already compacted" just means the window is
 				// fine. Only a real failure is worth a warning.
-				if (ctx.hasUI && !/nothing to compact|already compacted/i.test(error.message)) {
-					ctx.ui.notify(`goal: compact failed, continuing: ${error.message}`, "warning");
+				if (
+					ctx.hasUI &&
+					!/nothing to compact|already compacted/i.test(error.message)
+				) {
+					ctx.ui.notify(
+						`goal: compact failed, continuing: ${error.message}`,
+						"warning",
+					);
 				}
 				go();
 			},
 		});
 	};
 
-	const snapshotGit = async (ctx: ExtensionContext): Promise<string> => {
+	const snapshotGit = async (ctx: ExtensionContext): Promise<TreeSnapshot> => {
 		try {
-			const { stdout, code } = await pi.exec("git", ["status", "--porcelain"], {
-				cwd: ctx.cwd,
-				timeout: 8000,
-			});
-			if (code !== 0) return "";
-			return stdout.trim();
+			const options = { cwd: ctx.cwd, timeout: 8000 };
+			const [status, unstaged, staged, untracked] = await Promise.all([
+				pi.exec("git", ["status", "--porcelain"], options),
+				pi.exec("git", ["diff", "--binary", "--"], options),
+				pi.exec("git", ["diff", "--binary", "--cached", "--"], options),
+				pi.exec(
+					"git",
+					["ls-files", "--others", "--exclude-standard", "-z"],
+					options,
+				),
+			]);
+			if (
+				[status, unstaged, staged, untracked].some((result) => result.code !== 0)
+			) {
+				return { fingerprint: "", files: "" };
+			}
+			const hash = createHash("sha256")
+				.update(status.stdout)
+				.update(unstaged.stdout)
+				.update(staged.stdout);
+			for (const raw of untracked.stdout.split("\0").filter(Boolean).sort()) {
+				if (!pathIsInsideProject(raw, ctx.cwd)) continue;
+				try {
+					const path = resolve(ctx.cwd, raw);
+					const file = lstatSync(path);
+					hash.update(raw).update(String(file.size));
+					if (file.isSymbolicLink()) {
+						hash.update("<symlink>");
+					} else if (file.size <= SNAPSHOT_FILE_MAX_BYTES) {
+						hash.update(readFileSync(path));
+					} else {
+						hash.update(String(file.mtimeMs));
+					}
+				} catch {
+					hash.update(raw).update("<unreadable>");
+				}
+			}
+			return {
+				fingerprint: hash.digest("hex"),
+				files: status.stdout.trim(),
+			};
 		} catch {
-			return "";
+			return { fingerprint: "", files: "" };
 		}
 	};
 
@@ -851,7 +1080,9 @@ export default function (pi: ExtensionAPI) {
 	const ok = (action: GoalAction, extra: string) => {
 		if (!state) return noGoal(action);
 		return {
-			content: [{ type: "text" as const, text: `${extra}\n\n${formatShort(state)}` }],
+			content: [
+				{ type: "text" as const, text: `${extra}\n\n${formatShort(state)}` },
+			],
 			details: {
 				action,
 				phase: state.phase,
@@ -905,9 +1136,11 @@ export default function (pi: ExtensionAPI) {
 			criteria = criteriaFromTexts(parseCriteria(edited));
 		}
 
+		const sessionId = currentSessionId(ctx);
 		state = {
 			version: VERSION,
 			cwd: ctx.cwd,
+			sessionId,
 			sessionFile: ctx.sessionManager.getSessionFile(),
 			task: trimmed,
 			phase: "draft",
@@ -927,7 +1160,8 @@ export default function (pi: ExtensionAPI) {
 			log: [],
 			agents: [],
 			updatedAt: Date.now(),
-			file: goalFile(ctx.cwd),
+			file: goalFile(ctx.cwd, sessionId),
+			stateFile: goalStateFile(ctx.cwd, sessionId),
 		};
 		ensureTool();
 		persist();
@@ -982,18 +1216,12 @@ export default function (pi: ExtensionAPI) {
 		return { systemPrompt: `${event.systemPrompt}\n\n${extra}` };
 	});
 
-	// Plan-before-code, enforced rather than asked for. Only product files in the
-	// project are gated, and one `goal plan_approved` call clears it for good.
+	// Plan-before-code, enforced across built-in, shell, LSP, AST, nested, and
+	// write-capable subagent paths. Read-only planning work remains available.
 	pi.on("tool_call", async (event, ctx) => {
 		if (!state || state.planApproved) return;
-		if (state.phase !== "draft" && state.phase !== "await_plan") return;
-		if (!WRITE_TOOLS.has(event.toolName)) return;
 		const input = event.input as Record<string, unknown>;
-		const raw = input.path ?? input.file_path ?? input.filePath;
-		if (typeof raw !== "string" || !raw) return;
-		const target = isAbsolute(raw) ? resolve(raw) : resolve(ctx.cwd, raw);
-		const rel = relative(resolve(ctx.cwd), target);
-		if (rel.startsWith("..") || isAbsolute(rel)) return;
+		if (!mutatesProject(event.toolName, input, ctx.cwd)) return;
 		return {
 			block: true,
 			reason:
@@ -1004,6 +1232,7 @@ export default function (pi: ExtensionAPI) {
 	// Track background subagents so a context reset cannot lose the handle.
 	pi.on("tool_result", async (event) => {
 		if (!state || state.phase === "done" || state.phase === "stopped") return;
+		rememberProof(event);
 		if (event.toolName === "Agent") {
 			const details = event.details as
 				| { status?: string; agentId?: string }
@@ -1022,9 +1251,6 @@ export default function (pi: ExtensionAPI) {
 				description: clip(description, 80),
 				cycle: state.cycle,
 			});
-			if (state.agents.length > AGENT_CAP) {
-				state.agents = state.agents.slice(-AGENT_CAP);
-			}
 			persist();
 			return;
 		}
@@ -1103,12 +1329,12 @@ export default function (pi: ExtensionAPI) {
 		name: "goal",
 		label: "Goal",
 		description:
-			"Manage the active /goal loop. The on-disk goal file is the record; chat is not. Actions: status; set_criteria (criteria[], force?); set_roadmap (roadmap[]); step (id, state); plan_approved (note); evidence (id, evidence, met?); cycle (summary, next); await_plan; await_review; reviewed; blocked (reason); done. Evidence must name a command and its real output, a file:line, or the assertion that went green. done is rejected until every criterion has evidence AND a human review recorded after the last evidence change; once that gate is satisfied the goal closes itself on reviewed/cycle, so done is usually just confirmation.",
+			"Manage the active /goal loop. The scoped state.json is authoritative; chat and GOAL.md are not. Actions: status; set_criteria (criteria[], force?, note?); set_roadmap (roadmap[]); step (id, state); plan_approved (note); evidence (id, evidence, source, met?); cycle (summary, next); await_plan; await_review; reviewed (note); blocked (reason); done. Successful evidence must cite a recent successful toolCallId. done is rejected until every criterion has sourced evidence AND a human review recorded after the last evidence change; once that gate is satisfied the goal closes itself on reviewed/cycle, so done is usually just confirmation.",
 		promptSnippet:
 			"When a /goal loop is active, record evidence and end every slice with this tool. Chat is not memory.",
 		promptGuidelines: [
-			"A goal loop's record is its on-disk file. Re-read it at the start of a cycle; never take progress from chat.",
-			"Call goal evidence the moment a criterion is proven, with the output you actually saw. Never mark progress in prose only.",
+			"A goal loop's record is its scoped state.json. Re-read it at the start of a cycle; never take progress from chat or the Markdown mirror.",
+			"Call goal evidence the moment a criterion is proven, with the output you actually saw and the successful source toolCallId. Never mark progress in prose only.",
 			"End every slice with goal cycle / await_plan / await_review / blocked / done.",
 			"goal done is invalid until every criterion has evidence and the human review is newer than the last evidence change. The loop closes itself as soon as that holds — when the tool says the goal closed, stop working it.",
 		],
@@ -1123,32 +1349,49 @@ export default function (pi: ExtensionAPI) {
 				params.action !== "blocked" &&
 				params.action !== "done"
 			) {
-				return fail(params.action, "goal is already done — /goal <task> starts a new one");
+				return fail(
+					params.action,
+					"goal is already done — /goal <task> starts a new one",
+				);
 			}
 			// Any state-changing call is progress: it earns a fresh nudge budget.
 			if (params.action !== "status") state.nudgeCount = 0;
 
 			switch (params.action) {
 				case "status":
-					return ok("status", `Goal file: ${state.file}`);
+					return ok(
+						"status",
+						`Goal state: ${state.stateFile}\nMarkdown mirror: ${state.file}`,
+					);
 
 				case "set_criteria": {
-					const texts = (params.criteria ?? []).map((t) => t.trim()).filter(Boolean);
+					const texts = (params.criteria ?? [])
+						.map((text) => text.trim())
+						.filter(Boolean);
 					if (texts.length === 0) return fail("set_criteria", "criteria[] required");
+					const previousKeys = state.criteria.map((criterion) =>
+						keyOf(criterion.text),
+					);
 					const { next, dropped } = mergeCriteria(state.criteria, texts);
 					if (next.length === 0) return fail("set_criteria", "no usable criteria");
-					if (dropped.length > 0 && !params.force) {
-						return fail(
-							"set_criteria",
-							`this would drop evidenced criteria (${dropped
-								.map((c) => c.id)
-								.join(", ")}). Keep their text, or pass force: true if the human really dropped them.`,
-						);
-					}
-					state.criteria = next;
 					if (dropped.length > 0) {
+						if (!params.force) {
+							return fail(
+								"set_criteria",
+								`this would drop accepted criteria (${dropped.map((criterion) => criterion.id).join(", ")}). Keep their text, or pass force with a human approval note.`,
+							);
+						}
+						const note = params.note?.trim() ?? "";
+						const problem = approvalProblem(note);
+						if (problem) return fail("set_criteria", problem);
+					}
+					const changed =
+						previousKeys.join("\n") !==
+						next.map((criterion) => keyOf(criterion.text)).join("\n");
+					state.criteria = next;
+					if (changed) {
 						state.evidenceSerial += 1;
-						state.reviewed = false;
+						invalidateApproval();
 					}
 					state.lastAction = "set_criteria";
 					persist();
@@ -1156,15 +1399,23 @@ export default function (pi: ExtensionAPI) {
 					return ok(
 						"set_criteria",
 						`${state.criteria.length} criteria recorded${
-							dropped.length > 0 ? ` · dropped ${dropped.map((c) => c.id).join(", ")}` : ""
+							dropped.length > 0
+								? ` · dropped ${dropped.map((c) => c.id).join(", ")}`
+								: ""
 						}. Set the roadmap next, then plan.`,
 					);
 				}
 
 				case "set_roadmap": {
-					const texts = (params.roadmap ?? []).map((t) => t.trim()).filter(Boolean);
+					const texts = (params.roadmap ?? [])
+						.map((text) => text.trim())
+						.filter(Boolean);
 					if (texts.length === 0) return fail("set_roadmap", "roadmap[] required");
+					const before = state.roadmap.map((step) => keyOf(step.text)).join("\n");
 					state.roadmap = mergeRoadmap(state.roadmap, texts);
+					if (before !== state.roadmap.map((step) => keyOf(step.text)).join("\n")) {
+						invalidateApproval();
+					}
 					state.lastAction = "set_roadmap";
 					persist();
 					refreshWidget(ctx);
@@ -1176,7 +1427,8 @@ export default function (pi: ExtensionAPI) {
 
 				case "step": {
 					if (!params.id?.trim()) return fail("step", "id required (S1)");
-					if (!params.state) return fail("step", "state required (todo|active|done)");
+					if (!params.state)
+						return fail("step", "state required (todo|active|done)");
 					const step = resolveStep(state, params.id);
 					if (!step) return fail("step", `unknown step ${params.id}`);
 					if (params.state === "active") {
@@ -1199,6 +1451,8 @@ export default function (pi: ExtensionAPI) {
 							"note required — the plan URL and the human's verdict, or how they waived plan review",
 						);
 					}
+					const problem = approvalProblem(note);
+					if (problem) return fail("plan_approved", problem);
 					state.planApproved = true;
 					state.planNote = clip(note, TEXT_MAX);
 					if (state.phase === "await_plan") state.phase = "running";
@@ -1217,12 +1471,28 @@ export default function (pi: ExtensionAPI) {
 						return fail("evidence", "evidence required — the proof you actually saw");
 					}
 					const met = params.met !== false;
+					let source: EvidenceSource | undefined;
 					if (met) {
 						const problem = evidenceProblem(text);
 						if (problem) return fail("evidence", problem);
+						const sourceId = params.source?.trim();
+						if (!sourceId) {
+							return fail(
+								"evidence",
+								"source required — pass the toolCallId that produced this proof",
+							);
+						}
+						source = recentProofs.get(sourceId);
+						if (!source) {
+							return fail(
+								"evidence",
+								`source ${sourceId} is not a recent successful verification result`,
+							);
+						}
 					}
 					c.met = met;
 					c.evidence = clip(text, EVIDENCE_MAX);
+					c.evidenceSource = source;
 					c.cycle = state.cycle;
 					state.evidenceSerial += 1;
 					state.stallCount = 0;
@@ -1263,21 +1533,23 @@ export default function (pi: ExtensionAPI) {
 							"Every criterion is evidenced and the review is current — the goal closed itself. End the turn and report what shipped.",
 						);
 					}
-					const porcelain = await snapshotGit(ctx);
+					const tree = await snapshotGit(ctx);
 					// A session event could have cleared the goal while git ran.
 					if (!state) return noGoal("cycle");
-					const fingerprint = [
-						metCount(state),
-						state.evidenceSerial,
-						doneSteps(state),
-						porcelain,
-					].join("\n");
-					if (state.lastFingerprint === fingerprint) {
+					const fingerprint = tree.fingerprint
+						? [
+								metCount(state),
+								state.evidenceSerial,
+								doneSteps(state),
+								tree.fingerprint,
+							].join("\n")
+						: undefined;
+					if (fingerprint && state.lastFingerprint === fingerprint) {
 						state.stallCount += 1;
 					} else {
 						state.stallCount = 0;
-						state.lastFingerprint = fingerprint;
 					}
+					state.lastFingerprint = fingerprint;
 					if (state.stallCount >= STALL_LIMIT) {
 						state.phase = "blocked";
 						state.autoContinue = false;
@@ -1301,14 +1573,9 @@ export default function (pi: ExtensionAPI) {
 						n: state.cycle,
 						summary: clip(params.summary, SUMMARY_MAX),
 						next: state.nextSlice,
-						files: porcelain ? porcelain.split("\n").join("; ") : undefined,
+						files: tree.files ? tree.files.split("\n").join("; ") : undefined,
 					});
 					if (state.log.length > LOG_CAP) state.log = state.log.slice(-LOG_CAP);
-					// A handle older than a few cycles is almost certainly abandoned.
-					const currentCycle = state.cycle;
-					state.agents = state.agents.filter(
-						(a) => currentCycle - a.cycle < AGENT_STALE_CYCLES + 1,
-					);
 					persist();
 					refreshWidget(ctx);
 					const pending = state.agents.length
@@ -1342,7 +1609,7 @@ export default function (pi: ExtensionAPI) {
 						"Parked on human /review. Print the review URL. The user resumes with /goal continue.",
 					);
 
-				case "reviewed":
+				case "reviewed": {
 					if (state.criteria.some((c) => !c.met)) {
 						return fail(
 							"reviewed",
@@ -1352,7 +1619,11 @@ export default function (pi: ExtensionAPI) {
 								.join(", ")}`,
 						);
 					}
+					const reviewNote = params.note?.trim() ?? "";
+					const reviewProblem = approvalProblem(reviewNote);
+					if (reviewProblem) return fail("reviewed", reviewProblem);
 					state.reviewed = true;
+					state.reviewNote = clip(reviewNote, TEXT_MAX);
 					state.reviewSerial = state.evidenceSerial;
 					state.lastAction = "reviewed";
 					if (goalSatisfied(state)) {
@@ -1374,6 +1645,7 @@ export default function (pi: ExtensionAPI) {
 						"reviewed",
 						"Human review recorded. Re-check every criterion still holds, then done.",
 					);
+				}
 
 				case "blocked": {
 					const reason = params.reason?.trim();
@@ -1442,7 +1714,10 @@ export default function (pi: ExtensionAPI) {
 			if (details?.error) return new Text(theme.fg("error", msg), 0, 0);
 			const meta =
 				details && details.total !== undefined
-					? theme.fg("dim", ` ${details.met}/${details.total} · ${details.phase ?? ""}`)
+					? theme.fg(
+							"dim",
+							` ${details.met}/${details.total} · ${details.phase ?? ""}`,
+						)
 					: "";
 			return new Text(
 				theme.fg("success", "✓ ") + theme.fg("muted", msg) + meta,
@@ -1489,7 +1764,7 @@ export default function (pi: ExtensionAPI) {
 			}
 
 			if (sub === "status") {
-				const s = state ?? loadDisk(ctx.cwd);
+				const s = state ?? recoverDiskForEmptyBranch(ctx);
 				if (ctx.hasUI) {
 					ctx.ui.notify(s ? formatShort(s) : "No active goal", "info");
 				}
@@ -1497,7 +1772,7 @@ export default function (pi: ExtensionAPI) {
 			}
 
 			if (sub === "file") {
-				const file = state?.file ?? goalFile(ctx.cwd);
+				const file = state?.file ?? goalFile(ctx.cwd, currentSessionId(ctx));
 				if (ctx.hasUI) ctx.ui.notify(file, "info");
 				return;
 			}
@@ -1512,12 +1787,13 @@ export default function (pi: ExtensionAPI) {
 				state.lastAction = "stop";
 				persist();
 				refreshWidget(ctx);
-				if (ctx.hasUI) ctx.ui.notify("goal stopped · /goal continue resumes", "info");
+				if (ctx.hasUI)
+					ctx.ui.notify("goal stopped · /goal continue resumes", "info");
 				return;
 			}
 
 			if (sub === "done") {
-				if (!state) state = loadDisk(ctx.cwd);
+				if (!state) state = recoverDiskForEmptyBranch(ctx);
 				if (!state) {
 					if (ctx.hasUI) ctx.ui.notify("No active goal", "warning");
 					return;
@@ -1553,7 +1829,7 @@ export default function (pi: ExtensionAPI) {
 			}
 
 			if (sub === "continue") {
-				if (!state) state = loadDisk(ctx.cwd);
+				if (!state) state = recoverDiskForEmptyBranch(ctx);
 				if (!state) {
 					if (ctx.hasUI) ctx.ui.notify("No goal to continue", "warning");
 					return;
@@ -1562,7 +1838,8 @@ export default function (pi: ExtensionAPI) {
 					if (ctx.hasUI) ctx.ui.notify("Goal already done", "info");
 					return;
 				}
-				if (state.cycle >= state.cycleCap) state.cycleCap = state.cycle + DEFAULT_CAP;
+				if (state.cycle >= state.cycleCap)
+					state.cycleCap = state.cycle + DEFAULT_CAP;
 				if (state.phase === "stopped" || state.phase === "blocked") {
 					state.phase = state.planApproved ? "running" : "draft";
 					state.blockedReason = undefined;

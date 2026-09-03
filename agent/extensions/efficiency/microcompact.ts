@@ -2,9 +2,8 @@
  * Fold older bash/read/grep/find/ls results in outgoing LLM context.
  * Session JSONL is unchanged. Stubs always include a dump path.
  */
-import type { AgentMessage } from "@earendil-works/pi-agent-core";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import type { ToolResultMessage } from "@earendil-works/pi-ai";
+import type { ImageContent, TextContent } from "@earendil-works/pi-ai";
 import {
 	COMPRESSED_MARKER,
 	FOLDED_MARKER,
@@ -22,21 +21,36 @@ let lastFolded = 0;
  * dump writes cost more than the token savings in small sessions. */
 const MICROCOMPACT_PERCENT = 50;
 
-function isToolResult(m: AgentMessage): m is ToolResultMessage {
-	return m.role === "toolResult";
-}
+type MessageLike = {
+	role: string;
+	timestamp?: number;
+	content?: unknown;
+	[key: string]: unknown;
+};
 
-function isBashExecution(
-	m: AgentMessage,
-): m is AgentMessage & {
+type ToolResultLike = MessageLike & {
+	role: "toolResult";
+	toolCallId: string;
+	toolName: string;
+	content: (TextContent | ImageContent)[];
+	isError?: boolean;
+};
+
+type BashExecutionLike = MessageLike & {
 	role: "bashExecution";
 	output: string;
 	command: string;
-} {
+};
+
+function isToolResult(m: MessageLike): m is ToolResultLike {
+	return m.role === "toolResult";
+}
+
+function isBashExecution(m: MessageLike): m is BashExecutionLike {
 	return m.role === "bashExecution";
 }
 
-function lastTwoTurnStart(messages: AgentMessage[]): number {
+function lastTwoTurnStart(messages: MessageLike[]): number {
 	let seen = 0;
 	for (let i = messages.length - 1; i >= 0; i--) {
 		if (messages[i]?.role === "user") {
@@ -47,33 +61,42 @@ function lastTwoTurnStart(messages: AgentMessage[]): number {
 	return 0;
 }
 
-function readPathFromCalls(messages: AgentMessage[]): Map<string, string> {
-	const paths = new Map<string, string>();
+function readKeyFromCalls(messages: MessageLike[]): Map<string, string> {
+	const keys = new Map<string, string>();
 	for (const m of messages) {
 		if (m.role !== "assistant" || !Array.isArray(m.content)) continue;
-		for (const part of m.content) {
-			if (part.type !== "toolCall") continue;
-			if (part.name !== "read" && !part.name.toLowerCase().includes("read")) {
+		for (const raw of m.content) {
+			const part = raw as {
+				type?: string;
+				name?: string;
+				id?: string;
+				arguments?: Record<string, unknown>;
+			};
+			if (part.type !== "toolCall" || typeof part.name !== "string") continue;
+			if (part.name !== "read" && !part.name.toLowerCase().includes("read"))
 				continue;
-			}
 			const path = part.arguments?.path ?? part.arguments?.file_path;
-			if (typeof path === "string" && path) {
-				paths.set(part.id, path);
-			}
+			if (typeof path !== "string" || !path || !part.id) continue;
+			const offset = part.arguments?.offset ?? 1;
+			const limit = part.arguments?.limit ?? "all";
+			keys.set(part.id, `${path}\u0000${String(offset)}\u0000${String(limit)}`);
 		}
 	}
-	return paths;
+	return keys;
 }
 
 function foldStub(name: string, id: string, text: string): string {
-	const dump = writeDump(id, text);
+	const compressedDump = text.startsWith(COMPRESSED_MARKER)
+		? text.split("\n", 1)[0]?.match(/→\s+(.+)$/)?.[1]
+		: undefined;
+	const dump = compressedDump ?? writeDump(id, text);
 	const bytes = Buffer.byteLength(text, "utf8");
 	const tail = lastLines(text, FOLD_TAIL_LINES);
 	return `${FOLDED_MARKER} ${name} ${formatSize(bytes)} → ${dump} — last ${FOLD_TAIL_LINES} lines:\n${tail}`;
 }
 
 function alreadyFolded(text: string): boolean {
-	return text.startsWith(FOLDED_MARKER) || text.startsWith(COMPRESSED_MARKER);
+	return text.startsWith(FOLDED_MARKER);
 }
 
 export function registerMicrocompact(pi: ExtensionAPI): void {
@@ -92,19 +115,19 @@ export function registerMicrocompact(pi: ExtensionAPI): void {
 			return;
 		}
 
-		const messages = event.messages;
+		const messages = event.messages as MessageLike[];
 		const keepStart = lastTwoTurnStart(messages);
-		const readPaths = readPathFromCalls(messages);
+		const readKeys = readKeyFromCalls(messages);
 		const seenReads = new Set<string>();
 		const dropIds = new Set<string>();
 
 		for (let i = messages.length - 1; i >= 0; i--) {
 			const m = messages[i];
 			if (!isToolResult(m) || m.toolName !== "read") continue;
-			const path = readPaths.get(m.toolCallId);
-			if (!path) continue;
-			if (seenReads.has(path)) dropIds.add(m.toolCallId);
-			else seenReads.add(path);
+			const key = readKeys.get(m.toolCallId);
+			if (!key) continue;
+			if (seenReads.has(key)) dropIds.add(m.toolCallId);
+			else seenReads.add(key);
 		}
 
 		let folded = 0;
@@ -155,7 +178,7 @@ export function registerMicrocompact(pi: ExtensionAPI): void {
 
 		lastFolded = folded;
 		if (folded === 0) return;
-		return { messages: next };
+		return { messages: next as typeof event.messages };
 	});
 
 	pi.registerCommand("microcompact", {

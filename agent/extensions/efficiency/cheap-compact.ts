@@ -4,7 +4,11 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { generateSummaryWithUsage } from "@earendil-works/pi-coding-agent";
 import type { Model } from "@earendil-works/pi-ai";
-import { isProviderExhausted } from "../opencode-fallback.ts";
+import {
+	isModelExhausted,
+	isUsageLimitError,
+	markExhaustedFromError,
+} from "../opencode-fallback.ts";
 import { CHEAP_COMPACT_MODELS } from "./constants.ts";
 
 function fileOpsXml(fileOps: {
@@ -40,7 +44,7 @@ export function registerCheapCompact(pi: ExtensionAPI): void {
 		let env: Record<string, string> | undefined;
 
 		for (const [provider, id] of CHEAP_COMPACT_MODELS) {
-			if (isProviderExhausted(provider)) continue;
+			if (isModelExhausted(provider, id)) continue;
 			const candidate = ctx.modelRegistry.find(provider, id);
 			if (!candidate) continue;
 			const auth = await ctx.modelRegistry.getApiKeyAndHeaders(candidate);
@@ -87,8 +91,11 @@ export function registerCheapCompact(pi: ExtensionAPI): void {
 				},
 			};
 		} catch (error) {
+			const message = error instanceof Error ? error.message : String(error);
+			if (model && isUsageLimitError(message)) {
+				markExhaustedFromError(message, `${model.provider}/${model.id}`);
+			}
 			if (ctx.hasUI && !signal.aborted) {
-				const message = error instanceof Error ? error.message : String(error);
 				ctx.ui.notify(`Cheap compact failed, using stock: ${message}`, "warning");
 			}
 		}

@@ -6,7 +6,9 @@ description: Writes and updates tests, integration tests, snapshots, fixtures, a
 tools: read, bash, edit, write, grep, find, ls
 thinking: medium
 max_turns: 30
-isolated: true
+isolated: false
+extensions: ["/Users/ahmedragab/.pi/agent/extensions/security-gate.ts"]
+skills: false
 prompt_mode: replace
 ---
 

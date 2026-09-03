@@ -6,7 +6,9 @@ description: Compresses large terminal output (provided in the brief) into error
 tools: none
 thinking: low
 max_turns: 3
-isolated: true
+isolated: false
+extensions: ["/Users/ahmedragab/.pi/agent/extensions/security-gate.ts"]
+skills: false
 prompt_mode: replace
 ---
 

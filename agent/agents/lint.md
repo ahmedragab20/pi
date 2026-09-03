@@ -6,7 +6,9 @@ description: Handles formatting, lint, imports, and style without intentional ru
 tools: read, bash, edit, write, grep, find, ls
 thinking: low
 max_turns: 20
-isolated: true
+isolated: false
+extensions: ["/Users/ahmedragab/.pi/agent/extensions/security-gate.ts"]
+skills: false
 prompt_mode: replace
 ---
 

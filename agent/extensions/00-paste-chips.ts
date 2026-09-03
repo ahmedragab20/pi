@@ -10,10 +10,8 @@
  */
 import * as os from "node:os";
 import * as path from "node:path";
-import type {
-	ExtensionAPI,
-	ImageContent,
-} from "@earendil-works/pi-coding-agent";
+import type { ImageContent } from "@earendil-works/pi-ai";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
 	IMAGE_CHIP,
 	chipLabel as imageChipLabel,
@@ -152,11 +150,6 @@ export default function pasteChips(pi: ExtensionAPI) {
 	};
 
 	pi.on("session_start", onSession);
-	pi.on("session_switch", (event, ctx) => {
-		resetPasteRegistry();
-		resetText();
-		onSession(event, ctx);
-	});
 	pi.on("session_shutdown", () => {
 		resetPasteRegistry();
 		resetText();

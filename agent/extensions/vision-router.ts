@@ -43,7 +43,7 @@ import {
 	type SavedPaste,
 } from "./paste-images.ts";
 import {
-	isProviderExhausted,
+	isModelExhausted,
 	isUsageLimitError,
 	markExhaustedFromError,
 } from "./opencode-fallback.ts";
@@ -199,8 +199,7 @@ async function describeImages(
 
 	for (const model of VISION_MODELS) {
 		if (signal?.aborted) throw new Error("vision aborted");
-		const provider = model.split("/")[0] ?? "";
-		if (isProviderExhausted(provider)) continue;
+		if (isModelExhausted(model)) continue;
 		const args = [
 			"-p",
 			"--no-session",
@@ -223,7 +222,7 @@ async function describeImages(
 			if (signal?.aborted) throw err;
 			const summary = err instanceof Error ? err.message : String(err);
 			console.error(`[vision-router] ${model} failed: ${summary}`);
-			if (isUsageLimitError(summary)) markExhaustedFromError(summary);
+			if (isUsageLimitError(summary)) markExhaustedFromError(summary, model);
 		}
 	}
 	return null;
@@ -250,7 +249,7 @@ function paintChrome(job: VisionJob | undefined): void {
 		const msg = chromeLine(job);
 		ui.setWidget("vision", [msg], { placement: "aboveEditor" });
 		ui.setStatus("vision", msg);
-		ui.setWorkingMessage(msg);
+		if (job.status === "running") ui.setWorkingMessage(msg);
 	} catch {
 		/* ignore */
 	}

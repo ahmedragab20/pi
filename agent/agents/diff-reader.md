@@ -6,7 +6,9 @@ description: Compresses large git diffs (provided in the brief) into changed API
 tools: none
 thinking: low
 max_turns: 3
-isolated: true
+isolated: false
+extensions: ["/Users/ahmedragab/.pi/agent/extensions/security-gate.ts"]
+skills: false
 prompt_mode: replace
 ---
 

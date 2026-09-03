@@ -6,7 +6,9 @@ description: Writes README content, markdown docs, comments, and documentation u
 tools: read, bash, edit, write, grep, find, ls
 thinking: low
 max_turns: 20
-isolated: true
+isolated: false
+extensions: ["/Users/ahmedragab/.pi/agent/extensions/security-gate.ts"]
+skills: false
 prompt_mode: replace
 ---
 

@@ -2,5 +2,7 @@
   "disableDefaultAgents": true,
   "fallbackSubagent": "none",
   "workflowsEnabled": false,
-  "maxSubagentDepth": 1
+  "maxSubagentDepth": 1,
+  "widgetMode": "off",
+  "fleetView": false
 }

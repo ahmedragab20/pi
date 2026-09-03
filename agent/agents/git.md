@@ -6,7 +6,9 @@ description: Writes commit messages, release notes, PR summaries, and git change
 tools: read, bash
 thinking: low
 max_turns: 10
-isolated: true
+isolated: false
+extensions: ["/Users/ahmedragab/.pi/agent/extensions/security-gate.ts"]
+skills: false
 prompt_mode: replace
 ---
 

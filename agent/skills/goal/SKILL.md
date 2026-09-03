@@ -11,18 +11,18 @@ Read this file once per cycle if it is not already in context.
 
 ## The record
 
-The goal file the `goal` tool prints (`~/.pi/agent/goals/<project>/GOAL.md`). **That file is memory. Chat is not.**
+The scoped `state.json` at `~/.pi/agent/goals/<project>/<session>/state.json` is the authoritative record. **That is memory. Chat is not.** `GOAL.md` beside it is a generated human-readable mirror — never hand-edit it. `goal status` prints both paths.
 
-- Re-read the goal file at the start of every cycle. `goal status` prints the same thing.
+- Re-read the record at the start of every cycle. `goal status` prints both the `state.json` and `GOAL.md` paths.
 - Re-read the actual files you are about to change. They may not look like last cycle left them.
-- Never edit the goal file with `write` / `edit` — it is regenerated from the tool on every call.
+- Never edit the goal file with `write` / `edit` — `GOAL.md` is regenerated from `state.json` on every tool call.
 - Never mark a criterion met without proof **you saw this cycle**: a command and its real output, a `file:line`, an assertion that went green. A worker's "tests pass" is a claim; the output you read is the evidence.
-- If it is not in the goal file, it did not happen. Do not narrate progress in prose.
+- If it is not in `state.json`, it did not happen. Do not narrate progress in prose.
 
 ## Phases
 
 1. **Draft.** Criteria come from the human (the editor at `/goal` start) or you draft them — each one provable by a command, a file, a test, or a visible behavior. Explore only what you cannot already specify. Then `goal set_criteria`, `goal set_roadmap` with the ordered steps, and write the implementation plan yourself. Submit it with `diffing-plan-review`, **print the URL**, and call `goal await_plan` when you park.
-   **Product code is blocked** — `write`/`edit` inside the project fail until you record the verdict with `goal plan_approved` (that is also where you record a human waiver).
+   **Mutating work is blocked** until you record the verdict with `goal plan_approved` (that is also where you record a human waiver). The gate covers built-in writes, mutating shell commands, AST replacement, applied LSP rename/command, nested parallel mutators, and write-capable agents; read-only planning agents stay allowed.
 2. **Run.** `goal step <Sn> active`, then work that slice: the next roadmap step, or a tight group of criteria. You do the thinking, the subtle edits, and the review of everything a worker returns.
 3. **Cycle.** Slice finished, or your context is getting long: `goal cycle` with `summary` + `next`, then **stop talking**. The loop re-anchors you for the next slice and compacts when the window is actually filling up.
 4. **Verify.** Every criterion evidenced → read the real diff (`harness-diff-read`), run the real checks (`Agent` `tests` / `lint`), fix the nits yourself.
@@ -34,14 +34,14 @@ The goal file the `goal` tool prints (`~/.pi/agent/goals/<project>/GOAL.md`). **
 | action | when |
 | --- | --- |
 | `status` | start of a cycle, after a compaction, any time you might be stale |
-| `set_criteria` | write the accepted list (`criteria: string[]`). Evidence follows matching text; dropping an evidenced one needs `force` |
+| `set_criteria` | write the accepted list (`criteria: string[]`). Evidence follows matching text. Dropping an accepted criterion needs `force: true` **plus** an http(s) review URL or explicit human/user approval/waiver in `note` |
 | `set_roadmap` | the ordered steps (`roadmap: string[]`). Step state follows matching text |
 | `step` | `id` + `state` (`todo`/`active`/`done`) — one step is active at a time |
 | `plan_approved` | `note`: the human's verdict and the plan URL, or how they waived it. Unblocks product code |
-| `evidence` | the moment a criterion is proven (`id` + `evidence`). `met: false` retracts one that regressed |
+| `evidence` | the moment a criterion is proven (`id` + `evidence`). With `met: true`, `source` must equal the recent successful verification toolCallId. `met: false` retracts one that regressed |
 | `cycle` | end this slice (`summary`, `next`) |
 | `await_plan` / `await_review` | parking on a human gate — print the URL first |
-| `reviewed` | the human approved the review |
+| `reviewed` | the human approved the review — `note` must include the review URL or state the human/user approval explicitly |
 | `blocked` | you cannot proceed (`reason`) — do not guess |
 | `done` | all evidenced + reviewed — usually redundant, the loop has already closed itself |
 
@@ -61,7 +61,8 @@ Two tiers, same as always (`AGENTS.md`): you are the lead, workers are chores-on
 
 Loop-specific rules:
 
-- **Spawns are background by default. Read every one back before you `cycle`** — `get_subagent_result`. A handle that crosses a cycle boundary unread is tracked in the goal file and reminded to you, but the cheap path is to drain it while you still have the context that produced it.
+- **Spawns are background by default. Read every one back before you `cycle`** — `get_subagent_result`. Unread background handles persist until a terminal `get_subagent_result` consumes them; the cheap path is to drain them while you still have the context that produced them.
+- **Changing criteria or roadmap text revokes plan approval and review.** Re-submit the plan through `diffing-plan-review` and send new evidence back through `/review`.
 - **Independent spawns go out in one message.** Parallel writers get `isolation: "worktree"`, and you merge.
 - **Never evidence a criterion from a worker's report.** Read the diff, run the check, then evidence what you saw.
 - **Two failed attempts on the same slice → `goal blocked`.** Not a third rephrased brief.

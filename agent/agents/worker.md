@@ -6,7 +6,9 @@ description: Low-risk mechanical implementation — boilerplate, CRUD, fixtures,
 tools: read, bash, edit, write, grep, find, ls
 thinking: medium
 max_turns: 40
-isolated: true
+isolated: false
+extensions: ["/Users/ahmedragab/.pi/agent/extensions/security-gate.ts"]
+skills: false
 prompt_mode: replace
 ---
 

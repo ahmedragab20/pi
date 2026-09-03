@@ -1,74 +1,94 @@
 /**
- * Window-aware context efficiency.
+ * Window- and price-aware context efficiency.
  *
- * Small context windows (< 500k): early auto-compact around ~70% usage so
- * thinking + tools still have headroom.
- *
- * Large windows (500k / 1M+): no early trigger — stock compaction still runs
- * near `contextWindow - reserveTokens`, so this is not a barrier for big models.
- *
- * Commands:
- *   /context-efficiency  — show current window mode + usage
+ * Compaction is requested at 70% of an ordinary context window. When a model
+ * has a higher-price input tier before the context limit, request before that
+ * boundary instead. The shared coordinator waits for `agent_settled`, so this
+ * extension never aborts a turn or races another compaction caller.
  */
-import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type {
+	ExtensionAPI,
+	ExtensionContext,
+} from "@earendil-works/pi-coding-agent";
+import { requestCompaction } from "./efficiency/compaction-coordinator.ts";
 
-/** At/above this, leave compaction to stock near-limit behavior. */
-const LARGE_CONTEXT_WINDOW = 500_000;
-
-/**
- * For smaller windows, compact once usage crosses this percent of the window.
- * Example: 256k @ 70% ≈ 179k → leaves ~77k for continued work.
- */
-const SMALL_WINDOW_COMPACT_PERCENT = 70;
-
+const DEFAULT_COMPACT_PERCENT = 70;
+const PRICE_TIER_HEADROOM = 0.88;
 const COMPACT_INSTRUCTIONS =
-	"Preserve: goal, constraints, key decisions, file paths touched, failing tests/errors, next steps. Drop: raw tool dumps, repeated reads, verbose chatter.";
+	"Preserve: goal, constraints, key decisions, file paths touched, failing tests/errors, background agent handles, and the next concrete action. Drop: raw tool dumps, repeated reads, and verbose chatter.";
 
-export default function (pi: ExtensionAPI) {
-	let previousPercent: number | null = null;
+type TieredModel = {
+	cost?: { tiers?: { inputTokensAbove?: number }[] };
+};
 
-	const trigger = (ctx: ExtensionContext) => {
+type Watermark = {
+	tokens: number;
+	percent: number;
+	mode: "capacity" | "price-tier";
+};
+
+function watermark(ctx: ExtensionContext, contextWindow: number): Watermark {
+	const tiers = (ctx.model as TieredModel | undefined)?.cost?.tiers ?? [];
+	const firstTier = tiers
+		.map((tier) => tier.inputTokensAbove)
+		.filter(
+			(value): value is number =>
+				typeof value === "number" && value > 0 && value < contextWindow,
+		)
+		.sort((a, b) => a - b)[0];
+	const capacityTarget = Math.floor(
+		contextWindow * (DEFAULT_COMPACT_PERCENT / 100),
+	);
+	const tokens = firstTier
+		? Math.min(capacityTarget, Math.floor(firstTier * PRICE_TIER_HEADROOM))
+		: capacityTarget;
+	return {
+		tokens,
+		percent: (tokens / contextWindow) * 100,
+		mode: firstTier && tokens < capacityTarget ? "price-tier" : "capacity",
+	};
+}
+
+export default function contextEfficiency(pi: ExtensionAPI) {
+	let requested = false;
+
+	const reset = () => {
+		requested = false;
+	};
+	pi.on("session_start", reset);
+	pi.on("session_compact", reset);
+
+	pi.on("turn_end", (_event, ctx) => {
+		const usage = ctx.getContextUsage();
+		if (!usage || typeof usage.tokens !== "number") return;
+		const target = watermark(ctx, usage.contextWindow);
+		if (usage.tokens < target.tokens) {
+			requested = false;
+			return;
+		}
+		if (requested) return;
+		requested = true;
 		if (ctx.hasUI) {
 			ctx.ui.notify(
-				`Context efficiency: compacting at ≥${SMALL_WINDOW_COMPACT_PERCENT}% (small window)`,
+				`Context efficiency: queued ${target.mode} compaction at ${Math.round(target.percent)}%`,
 				"info",
 			);
 		}
-		ctx.compact({
+		requestCompaction(ctx, {
+			reason: `context-${target.mode}`,
 			customInstructions: COMPACT_INSTRUCTIONS,
+			minPercent: target.percent,
 			onError: (error) => {
+				requested = false;
 				if (ctx.hasUI) {
 					ctx.ui.notify(`Compaction failed: ${error.message}`, "error");
 				}
 			},
 		});
-	};
-
-	pi.on("turn_end", (_event, ctx) => {
-		const usage = ctx.getContextUsage();
-		if (!usage || usage.tokens === null || usage.percent === null) {
-			return;
-		}
-
-		// Large windows: never early-compact via this extension.
-		if (usage.contextWindow >= LARGE_CONTEXT_WINDOW) {
-			previousPercent = usage.percent;
-			return;
-		}
-
-		const crossed =
-			previousPercent !== null &&
-			previousPercent < SMALL_WINDOW_COMPACT_PERCENT &&
-			usage.percent >= SMALL_WINDOW_COMPACT_PERCENT;
-
-		previousPercent = usage.percent;
-		if (crossed) {
-			trigger(ctx);
-		}
 	});
 
 	pi.registerCommand("context-efficiency", {
-		description: "Show context-efficiency mode for the current model window",
+		description: "Show the active capacity/price compaction watermark",
 		handler: async (_args, ctx) => {
 			if (!ctx.hasUI) return;
 			const usage = ctx.getContextUsage();
@@ -76,14 +96,11 @@ export default function (pi: ExtensionAPI) {
 				ctx.ui.notify("No context usage yet", "info");
 				return;
 			}
-			const mode =
-				usage.contextWindow >= LARGE_CONTEXT_WINDOW
-					? "large-window · early compact OFF (stock near-limit only)"
-					: `small-window · early compact at ${SMALL_WINDOW_COMPACT_PERCENT}%`;
+			const target = watermark(ctx, usage.contextWindow);
 			const tokens = usage.tokens ?? "?";
 			const percent = usage.percent ?? "?";
 			ctx.ui.notify(
-				`${mode} · ${tokens}/${usage.contextWindow} (${percent}%)`,
+				`${target.mode} compact at ${target.tokens} tokens (${Math.round(target.percent)}%) · ${tokens}/${usage.contextWindow} (${percent}%)`,
 				"info",
 			);
 		},

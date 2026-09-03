@@ -7,7 +7,7 @@
   "hideThinkingBlock": false,
   "externalEditor": "nvim",
   "quietStartup": true,
-  "defaultProjectTrust": "always",
+  "defaultProjectTrust": "ask",
   "collapseChangelog": true,
   "compaction": {
     "enabled": true,

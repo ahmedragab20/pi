@@ -6,7 +6,9 @@ description: Research worker (read-only). Proactively maps the codebase before i
 tools: read, bash, grep, find, ls
 thinking: medium
 max_turns: 30
-isolated: true
+isolated: false
+extensions: ["/Users/ahmedragab/.pi/agent/extensions/security-gate.ts"]
+skills: false
 prompt_mode: replace
 ---
 

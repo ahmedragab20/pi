@@ -2,14 +2,10 @@
  * Worker models: OpenCode Go GLM Flash first, then OpenCode Go DeepSeek Flash
  * if GLM is unauthed or out of usage. Never switches the lead.
  *
- * Images are not routed here — a multimodal lead sees them natively, and a
- * text-only lead is covered by `vision-router.ts`, which forks a headless
- * `pi -p` child rather than spawning a subagent.
- *
  * Agent frontmatter cannot express a fallback (a pinned `model:` is locked),
  * so worker files omit `model` and this fills `Agent.model` before spawn.
- * A failed spawn is retried once on the next model in the chain and the tool
- * result is replaced so the lead never sees the quota error.
+ * Foreground failures are replaced inline; detached failures are retried as a
+ * new detached agent and notify through the normal subagent completion path.
  */
 import { randomUUID } from "node:crypto";
 import type {
@@ -18,26 +14,35 @@ import type {
 	ToolResultEvent,
 } from "@earendil-works/pi-coding-agent";
 import {
-	isProviderExhausted,
+	isModelExhausted,
 	isUsageLimitError,
 	markExhaustedFromError,
-	markProviderExhausted,
+	markModelExhausted,
 	resetProviderExhaustion,
 } from "./opencode-fallback.ts";
 
 type Pair = readonly [string, string];
+type AgentInput = Record<string, unknown>;
+type AgentEvent = {
+	id?: string;
+	status?: string;
+	result?: string;
+	error?: string;
+};
+
+type PendingBackground = {
+	input: AgentInput;
+	model: string;
+};
 
 const FLASH: Pair[] = [
 	["opencode-go", "glm-5.3-flash"],
 	["opencode-go", "deepseek-v4-flash"],
 ];
+const RETRY_TIMEOUT_MS = 8 * 60_000;
 
 function spec([provider, id]: Pair): string {
 	return `${provider}/${id}`;
-}
-
-function providerOfSpec(s: string): string {
-	return s.split("/")[0] ?? "";
 }
 
 async function pickModel(
@@ -45,7 +50,7 @@ async function pickModel(
 	chain: Pair[],
 ): Promise<string | undefined> {
 	for (const pair of chain) {
-		if (isProviderExhausted(pair[0])) continue;
+		if (isModelExhausted(pair[0], pair[1])) continue;
 		const model = ctx.modelRegistry.find(pair[0], pair[1]);
 		if (!model) continue;
 		const auth = await ctx.modelRegistry.getApiKeyAndHeaders(model);
@@ -95,82 +100,142 @@ function waitAgent(
 	pi: ExtensionAPI,
 	id: string,
 	timeoutMs: number,
-): Promise<{ status: string; result?: string; error?: string }> {
+): Promise<AgentEvent> {
 	return new Promise((resolve, reject) => {
 		const timer = setTimeout(() => {
-			offC();
-			offF();
+			offCompleted();
+			offFailed();
 			reject(new Error("fallback agent timed out"));
 		}, timeoutMs);
 		const done = (raw: unknown) => {
-			const data = raw as {
-				id?: string;
-				status?: string;
-				result?: string;
-				error?: string;
-			};
+			const data = raw as AgentEvent;
 			if (data.id !== id) return;
 			clearTimeout(timer);
-			offC();
-			offF();
-			resolve({
-				status: data.status ?? "completed",
-				result: data.result,
-				error: data.error,
-			});
+			offCompleted();
+			offFailed();
+			resolve(data);
 		};
-		const offC = pi.events.on("subagents:completed", done);
-		const offF = pi.events.on("subagents:failed", done);
+		const offCompleted = pi.events.on("subagents:completed", done);
+		const offFailed = pi.events.on("subagents:failed", done);
 	});
+}
+
+function retryOptions(
+	input: AgentInput,
+	model: string,
+): Record<string, unknown> {
+	return {
+		description: String(input.description ?? "worker fallback"),
+		name: input.name,
+		model,
+		maxTurns: input.max_turns,
+		isolated: input.isolated,
+		inheritContext: input.inherit_context,
+		thinkingLevel: input.thinking,
+		isBackground: true,
+		isolation: input.isolation,
+	};
+}
+
+async function spawnRetry(
+	pi: ExtensionAPI,
+	input: AgentInput,
+	model: string,
+): Promise<string> {
+	const type = input.subagent_type;
+	const prompt = input.prompt;
+	if (typeof type !== "string" || typeof prompt !== "string") {
+		throw new Error("worker fallback is missing subagent_type or prompt");
+	}
+	const spawned = await rpc<{ id: string }>(
+		pi,
+		"subagents:rpc:spawn",
+		{
+			type,
+			prompt,
+			options: retryOptions(input, model),
+		},
+		15_000,
+	);
+	if (!spawned?.id) throw new Error("worker fallback returned no agent id");
+	return spawned.id;
+}
+
+async function stopRetry(pi: ExtensionAPI, id: string): Promise<void> {
+	try {
+		await rpc<void>(pi, "subagents:rpc:stop", { agentId: id }, 5_000);
+	} catch {
+		// The agent may have completed between the timeout and stop request.
+	}
+}
+
+function terminalFailure(event: AgentEvent): boolean {
+	return (
+		event.status === "error" ||
+		event.status === "aborted" ||
+		event.status === "stopped"
+	);
 }
 
 export default function workerModel(pi: ExtensionAPI) {
 	const retried = new Set<string>();
-	pi.on("session_start", () => {
+	const pendingBackground = new Map<string, PendingBackground>();
+	let sessionCtx: ExtensionContext | undefined;
+
+	const reset = () => {
 		resetProviderExhaustion();
 		retried.clear();
+		pendingBackground.clear();
+	};
+
+	pi.on("session_start", (_event, ctx) => {
+		sessionCtx = ctx;
+		reset();
+	});
+
+	pi.on("session_shutdown", () => {
+		sessionCtx = undefined;
+		pendingBackground.clear();
 	});
 
 	pi.on("after_provider_response", (event, ctx) => {
-		if (event.status !== 402) return;
-		const provider = ctx.model?.provider;
-		if (
-			provider === "opencode-go" ||
-			provider === "opencode" ||
-			provider === "openai-codex"
-		) {
-			markProviderExhausted(provider);
-		}
+		if (event.status !== 402 || !ctx.model) return;
+		markModelExhausted(`${ctx.model.provider}/${ctx.model.id}`);
 	});
 
 	pi.on("tool_call", async (event, ctx) => {
 		if (event.toolName !== "Agent") return;
-		const input = event.input as Record<string, unknown>;
+		sessionCtx = ctx;
+		const input = event.input as AgentInput;
 		if (typeof input.resume === "string" && input.resume.trim()) return;
 		if (typeof input.model === "string" && input.model.trim()) return;
 
 		const picked = await pickModel(ctx, FLASH);
-		if (!picked) return;
-		input.model = picked;
+		if (picked) input.model = picked;
 	});
 
 	pi.on("tool_result", async (event, ctx) => {
-		if (event.toolName !== "Agent" || !event.isError) return;
-		if (retried.has(event.toolCallId)) return;
+		if (event.toolName !== "Agent") return;
+		sessionCtx = ctx;
+		const input = event.input as AgentInput;
+		const details = event.details as
+			| { status?: string; agentId?: string }
+			| undefined;
 
-		const input = event.input as Record<string, unknown>;
+		if (!event.isError && details?.status === "background" && details.agentId) {
+			const model = typeof input.model === "string" ? input.model : "";
+			pendingBackground.set(details.agentId, { input: { ...input }, model });
+			return;
+		}
+
+		if (!event.isError || retried.has(event.toolCallId)) return;
 		if (typeof input.resume === "string" && input.resume.trim()) return;
-		if (input.run_in_background === true) return;
 
 		const text = resultText(event);
 		if (!isUsageLimitError(text)) return;
 
-		markExhaustedFromError(text);
 		const used = typeof input.model === "string" ? input.model : "";
-		if (used) markProviderExhausted(providerOfSpec(used));
-
-		if (used === LAST_RESORT) return;
-
+		markExhaustedFromError(text, used);
 		const picked = await pickModel(ctx, FLASH);
 		if (!picked || picked === used) return;
 
@@ -180,35 +245,16 @@ export default function workerModel(pi: ExtensionAPI) {
 				`${used} out of usage — retrying worker on ${picked}`,
 				"warning",
 			);
-			notified = true;
 		}
 
+		let spawnedId: string | undefined;
 		try {
-			const spawned = await rpc<{ id: string }>(
-				pi,
-				"subagents:rpc:spawn",
-				{
-					type: input.subagent_type,
-					prompt: input.prompt,
-					options: {
-						description: String(input.description ?? "worker fallback"),
-						model: picked,
-						isolated: true,
-						isBackground: true,
-						bypassQueue: true,
-					},
-				},
-				15_000,
-			);
-			if (!spawned?.id) return;
-			const finished = await waitAgent(pi, spawned.id, 8 * 60_000);
-			const ok =
-				finished.status !== "error" &&
-				finished.status !== "aborted" &&
-				finished.status !== "stopped";
+			spawnedId = await spawnRetry(pi, input, picked);
+			const finished = await waitAgent(pi, spawnedId, RETRY_TIMEOUT_MS);
+			const ok = !terminalFailure(finished);
 			const body =
 				(ok ? finished.result : finished.error || finished.result) ??
-				"OpenCode Go fallback finished with no text.";
+				"Worker fallback finished with no text.";
 			return {
 				content: [
 					{
@@ -218,17 +264,70 @@ export default function workerModel(pi: ExtensionAPI) {
 				],
 				isError: !ok,
 			};
-		} catch (err) {
-			const msg = err instanceof Error ? err.message : String(err);
+		} catch (error) {
+			if (spawnedId) await stopRetry(pi, spawnedId);
+			const message = error instanceof Error ? error.message : String(error);
 			return {
 				content: [
 					{
 						type: "text" as const,
-						text: `${text}\n\nFallback retry failed: ${msg}`,
+						text: `${text}\n\nFallback retry failed: ${message}`,
 					},
 				],
 				isError: true,
 			};
 		}
+	});
+
+	const offCompleted = pi.events.on("subagents:completed", (raw) => {
+		const event = raw as AgentEvent;
+		if (event.id) pendingBackground.delete(event.id);
+	});
+
+	const offFailed = pi.events.on("subagents:failed", (raw) => {
+		const event = raw as AgentEvent;
+		const id = event.id;
+		if (!id) return;
+		const pending = pendingBackground.get(id);
+		pendingBackground.delete(id);
+		const text = `${event.error ?? ""}\n${event.result ?? ""}`;
+		if (!pending || retried.has(id) || !isUsageLimitError(text)) return;
+		const ctx = sessionCtx;
+		if (!ctx) return;
+
+		void (async () => {
+			markExhaustedFromError(text, pending.model);
+			const picked = await pickModel(ctx, FLASH);
+			if (!picked || picked === pending.model) return;
+			retried.add(id);
+			if (ctx.hasUI) {
+				ctx.ui.notify(
+					`${pending.model} out of usage — retrying background worker on ${picked}`,
+					"warning",
+				);
+			}
+			void rpc<void>(pi, "subagents:rpc:consume", { agentId: id }, 5_000).catch(
+				() => {
+					// A visible failure notification is preferable to delaying the retry.
+				},
+			);
+			try {
+				const replacementId = await spawnRetry(pi, pending.input, picked);
+				pendingBackground.set(replacementId, {
+					input: { ...pending.input, model: picked },
+					model: picked,
+				});
+			} catch (error) {
+				if (ctx.hasUI) {
+					const message = error instanceof Error ? error.message : String(error);
+					ctx.ui.notify(`Background worker fallback failed: ${message}`, "error");
+				}
+			}
+		})();
+	});
+
+	pi.on("session_shutdown", () => {
+		offCompleted();
+		offFailed();
 	});
 }

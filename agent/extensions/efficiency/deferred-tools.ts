@@ -7,7 +7,7 @@ import { CORE_ALWAYS, CORE_IF_PRESENT } from "./constants.ts";
 
 function coreTools(pi: ExtensionAPI): string[] {
 	const available = new Set(pi.getAllTools().map((t) => t.name));
-	const names = [...CORE_ALWAYS];
+	const names: string[] = [...CORE_ALWAYS];
 	for (const extra of CORE_IF_PRESENT) {
 		if (available.has(extra)) names.push(extra);
 	}

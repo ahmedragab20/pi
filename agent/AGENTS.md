@@ -136,12 +136,13 @@ The `todo` list **is** the user's live progress (`/todos`). Stale items are a bu
 
 When the user starts `/goal`, keep working that task across re-anchored cycles until every accepted criterion has evidence, you have verified it, and the human has reviewed it. Load `skills/goal/SKILL.md`.
 
-- The on-disk goal file is memory. Chat is not. Re-read it and the real sources each cycle.
+- The scoped `state.json` under the goal directory is the authoritative record; `GOAL.md` is a generated human-readable mirror. Chat is not the record — `goal status` prints both paths. Re-read it and the real sources each cycle.
 - Criteria are the contract; the roadmap (`set_roadmap` / `step`) is the plan. Both live in the goal file, not in your head.
 - Record proof with the `goal` tool (`evidence`, then `cycle` / `await_*` / `blocked` / `done`). Never mark a criterion met in prose only, and never from a worker's report — read the diff, run the check, evidence what you saw.
-- **Plan before code is enforced:** `write`/`edit` inside the project are blocked until `goal plan_approved` records the human's verdict (or their waiver).
+- **Plan before code is enforced:** built-in writes, mutating shell commands, AST replacement, applied LSP rename/command, nested parallel mutators, and write-capable agents are blocked inside the project until `goal plan_approved` records the human's verdict (or their waiver). Read-only planning agents stay allowed.
 - `goal done` is rejected until every criterion is evidenced **and** the human review is newer than the last evidence change. The loop closes itself the moment that gate is satisfied — when it says so, stop and report.
-- Drain every background spawn (`get_subagent_result`) before you `goal cycle` — a handle that crosses the boundary unread costs a re-spawn.
+- Drain every background spawn (`get_subagent_result`) before you `goal cycle` — unread background handles persist until a terminal `get_subagent_result` consumes them.
+- Changing criteria or roadmap text revokes plan approval and review — re-plan and re-review.
 - The extension auto-continues and compacts only when the window is actually filling, so treat anything above the cycle marker as stale, not gone.
 - `/goal stop` means stop, `/goal done` closes the goal on the spot. Three cycles with no new evidence and no tree change blocks the loop.
 

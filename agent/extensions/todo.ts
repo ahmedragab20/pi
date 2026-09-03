@@ -37,7 +37,8 @@ interface TodoSnapshot {
 
 const TODO_ENTRY = "todos";
 const TODO_WIDGET = "todos";
-const WIDGET_CAP = 8;
+
+type AgentActivity = "queued" | "running";
 
 const TodoParams = Type.Object({
 	action: StringEnum(["list", "add", "toggle", "update", "clear"] as const),
@@ -145,6 +146,8 @@ class TodoListComponent {
 export default function (pi: ExtensionAPI) {
 	let todos: Todo[] = [];
 	let nextId = 1;
+	let currentCtx: ExtensionContext | undefined;
+	const activeAgents = new Map<string, AgentActivity>();
 
 	const snapshot = (): TodoSnapshot => ({ todos: cloneTodos(todos), nextId });
 
@@ -161,27 +164,47 @@ export default function (pi: ExtensionAPI) {
 		pi.appendEntry(TODO_ENTRY, snapshot());
 	};
 
-	const refreshWidget = (ctx?: ExtensionContext) => {
+	const refreshWidget = (ctx: ExtensionContext | undefined = currentCtx) => {
 		if (!ctx?.hasUI) return;
-		if (todos.length === 0) {
+		currentCtx = ctx;
+		if (todos.length === 0 && activeAgents.size === 0) {
 			ctx.ui.setWidget(TODO_WIDGET, undefined);
 			return;
 		}
+
 		const list = cloneTodos(todos);
+		const agents = [...activeAgents.values()];
 		ctx.ui.setWidget(TODO_WIDGET, (_tui, theme) => {
-			const header = theme.fg("muted", `${progressLine(list)}  /todos`);
-			const visible = list.slice(0, WIDGET_CAP);
-			const rows = visible.map((t) => {
-				const check = t.done ? theme.fg("success", "✓") : theme.fg("dim", "○");
-				const text = t.done ? theme.fg("dim", t.text) : theme.fg("text", t.text);
-				return `${check} ${theme.fg("accent", `#${t.id}`)} ${text}`;
-			});
-			if (list.length > WIDGET_CAP) {
-				rows.push(theme.fg("dim", `… ${list.length - WIDGET_CAP} more`));
+			const lines: string[] = [];
+
+			if (list.length > 0) {
+				const done = list.filter((todo) => todo.done).length;
+				const next = list.find((todo) => !todo.done);
+				const label = theme.fg("accent", "Tasks");
+				const count = theme.fg("muted", `${done}/${list.length}`);
+				const detail = next
+					? `${theme.fg("dim", "next")} ${theme.fg("accent", `#${next.id}`)} ${theme.fg("text", next.text)}`
+					: theme.fg("success", "complete");
+				lines.push(
+					`${label} ${count} ${theme.fg("dim", "·")} ${detail} ${theme.fg("dim", "· /todos")}`,
+				);
 			}
-			const lines = [header, ...rows];
+
+			if (agents.length > 0) {
+				const running = agents.filter((state) => state === "running").length;
+				const queued = agents.length - running;
+				const counts = [
+					running > 0 ? `${running} running` : undefined,
+					queued > 0 ? `${queued} queued` : undefined,
+				].filter((part): part is string => part !== undefined);
+				lines.push(
+					`${theme.fg("accent", "Agents")} ${theme.fg("muted", counts.join(" · "))} ${theme.fg("dim", "· /agents")}`,
+				);
+			}
+
 			return {
-				render: () => lines,
+				render: (width: number) =>
+					lines.map((line) => truncateToWidth(line, width)),
 				invalidate: () => {},
 			};
 		});
@@ -241,12 +264,50 @@ export default function (pi: ExtensionAPI) {
 		}
 	};
 
-	pi.on("session_start", async (_event, ctx) => reconstructState(ctx));
-	pi.on("session_tree", async (_event, ctx) => reconstructState(ctx));
+	pi.on("session_start", async (_event, ctx) => {
+		currentCtx = ctx;
+		activeAgents.clear();
+		reconstructState(ctx);
+	});
+	pi.on("session_tree", async (_event, ctx) => {
+		currentCtx = ctx;
+		reconstructState(ctx);
+	});
 	pi.on("session_compact", async (_event, ctx) => {
 		if (todos.length > 0) persist();
 		refreshWidget(ctx);
 	});
+	pi.on("session_shutdown", async () => {
+		currentCtx = undefined;
+		activeAgents.clear();
+	});
+
+	const eventAgentId = (event: unknown): string | undefined => {
+		if (!event || typeof event !== "object" || !("id" in event)) return undefined;
+		const id = (event as { id?: unknown }).id;
+		return typeof id === "string" ? id : undefined;
+	};
+
+	pi.events.on("subagents:created", (event) => {
+		const id = eventAgentId(event);
+		if (!id) return;
+		if (!activeAgents.has(id)) activeAgents.set(id, "queued");
+		refreshWidget();
+	});
+	pi.events.on("subagents:started", (event) => {
+		const id = eventAgentId(event);
+		if (!id) return;
+		activeAgents.set(id, "running");
+		refreshWidget();
+	});
+	const settleAgent = (event: unknown) => {
+		const id = eventAgentId(event);
+		if (!id) return;
+		activeAgents.delete(id);
+		refreshWidget();
+	};
+	pi.events.on("subagents:completed", settleAgent);
+	pi.events.on("subagents:failed", settleAgent);
 
 	pi.on("before_agent_start", async (event) => {
 		if (todos.length === 0) return;

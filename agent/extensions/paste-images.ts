@@ -13,7 +13,7 @@ import { createHash } from "node:crypto";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import type { ImageContent } from "@earendil-works/pi-coding-agent";
+import type { ImageContent } from "@earendil-works/pi-ai";
 
 export const VISION_DIR = path.join(os.homedir(), ".pi", "agent", "vision");
 export const IMAGE_CHIP = /\[Image #(\d+)(?: · [^\]]+)?\]/g;

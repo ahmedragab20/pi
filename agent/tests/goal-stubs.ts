@@ -54,7 +54,10 @@ plugin({
 			loader: "object",
 		}));
 		build.module("@earendil-works/pi-coding-agent", () => ({
-			exports: { getAgentDir: () => TEST_AGENT_DIR },
+			exports: {
+				getAgentDir: () => TEST_AGENT_DIR,
+				formatSize: (bytes: number) => `${bytes} B`,
+			},
 			loader: "object",
 		}));
 		build.module("@earendil-works/pi-tui", () => ({
