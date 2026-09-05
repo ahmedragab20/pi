@@ -1,9 +1,20 @@
 import type {
 	ExtensionAPI,
 	ExtensionContext,
+	Theme,
 } from "@earendil-works/pi-coding-agent";
 
 const STATUS_KEY = "working-timer";
+
+const THINKING_FG = {
+	off: "thinkingOff",
+	minimal: "thinkingMinimal",
+	low: "thinkingLow",
+	medium: "thinkingMedium",
+	high: "thinkingHigh",
+	xhigh: "thinkingXhigh",
+	max: "thinkingMax",
+} as const satisfies Record<string, Parameters<Theme["fg"]>[0]>;
 
 export function formatElapsed(milliseconds: number): string {
 	const totalSeconds = Math.max(0, Math.floor(milliseconds / 1000));
@@ -13,6 +24,12 @@ export function formatElapsed(milliseconds: number): string {
 	const hours = Math.floor(totalMinutes / 60);
 	const clock = `${minutes.toString().padStart(2, "0")}:${seconds.toString().padStart(2, "0")}`;
 	return hours > 0 ? `${hours}:${clock}` : clock;
+}
+
+export function formatThinking(theme: Theme, level: string): string {
+	const color =
+		THINKING_FG[level as keyof typeof THINKING_FG] ?? ("muted" as const);
+	return theme.fg(color, level);
 }
 
 export default function workingTimer(pi: ExtensionAPI): void {
@@ -27,9 +44,9 @@ export default function workingTimer(pi: ExtensionAPI): void {
 
 	const refresh = () => {
 		if (!currentCtx || startedAt === undefined) return;
-		currentCtx.ui.setWorkingMessage(
-			`Working... ${formatElapsed(Date.now() - startedAt)}`,
-		);
+		const elapsed = formatElapsed(Date.now() - startedAt);
+		const thinking = formatThinking(currentCtx.ui.theme, pi.getThinkingLevel());
+		currentCtx.ui.setWorkingMessage(`Working... ${elapsed} · ${thinking}`);
 	};
 
 	pi.on("session_start", (_event, ctx) => {
@@ -45,6 +62,11 @@ export default function workingTimer(pi: ExtensionAPI): void {
 		ctx.ui.setStatus(STATUS_KEY, undefined);
 		refresh();
 		if (!timer) timer = setInterval(refresh, 1000);
+	});
+
+	pi.on("thinking_level_select", (_event, ctx) => {
+		currentCtx = ctx;
+		refresh();
 	});
 
 	pi.on("agent_settled", (_event, ctx) => {

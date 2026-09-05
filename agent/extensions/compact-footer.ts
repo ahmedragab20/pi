@@ -25,11 +25,7 @@ function compactStatuses(
 ): string[] {
 	const compact: string[] = [];
 	for (const [key, text] of statuses) {
-		if (key === "subagents") continue;
-		if (key === "pi-lens-lsp") {
-			compact.push(theme.fg("accent", "TS"));
-			continue;
-		}
+		if (key === "subagents" || key === "pi-lens-lsp") continue;
 		if (key === "diffing") {
 			if (!text.includes("no server")) compact.push(theme.fg("accent", "diffing"));
 			continue;
