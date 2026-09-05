@@ -23,7 +23,7 @@
  * visible, working indicator already up).
  */
 
-import { spawn } from "node:child_process";
+import { runChild } from "./process/child.ts";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import type {
@@ -113,64 +113,6 @@ function formatElapsed(startedAt: number, endedAt?: number): string {
 	return `${Math.floor(s / 60)}m ${s % 60}s`;
 }
 
-function runChild(
-	args: string[],
-	cwd: string,
-	timeoutMs: number,
-	signal: AbortSignal | undefined,
-): Promise<string> {
-	return new Promise((resolve, reject) => {
-		const invocation = getPiInvocation(args);
-		const proc = spawn(invocation.command, invocation.args, {
-			cwd,
-			shell: false,
-			stdio: ["ignore", "pipe", "pipe"],
-		});
-		let stdout = "";
-		let stderr = "";
-		const timer = setTimeout(() => {
-			proc.kill("SIGKILL");
-			reject(new Error(`vision child timed out after ${timeoutMs}ms`));
-		}, timeoutMs);
-
-		proc.stdout.on("data", (d) => {
-			stdout += d.toString();
-		});
-		proc.stderr.on("data", (d) => {
-			stderr += d.toString();
-		});
-		proc.on("close", (code) => {
-			clearTimeout(timer);
-			if (code === 0) resolve(stdout.trim());
-			else reject(new Error(stderr.trim() || `exit code ${code}`));
-		});
-		proc.on("error", (err) => {
-			clearTimeout(timer);
-			reject(err);
-		});
-
-		if (signal) {
-			if (signal.aborted) {
-				clearTimeout(timer);
-				proc.kill("SIGKILL");
-				reject(new Error("vision aborted"));
-				return;
-			}
-			signal.addEventListener(
-				"abort",
-				() => {
-					clearTimeout(timer);
-					proc.kill("SIGTERM");
-					setTimeout(() => {
-						if (!proc.killed) proc.kill("SIGKILL");
-					}, 3000);
-				},
-				{ once: true },
-			);
-		}
-	});
-}
-
 async function describeImages(
 	cwd: string,
 	files: SavedPaste[],
@@ -197,8 +139,11 @@ async function describeImages(
 		.filter(Boolean)
 		.join("\n");
 
+	const deadline = Date.now() + VISION_TIMEOUT_MS;
 	for (const model of VISION_MODELS) {
 		if (signal?.aborted) throw new Error("vision aborted");
+		const remaining = deadline - Date.now();
+		if (remaining <= 0) break;
 		if (isModelExhausted(model)) continue;
 		const args = [
 			"-p",
@@ -214,7 +159,15 @@ async function describeImages(
 			prompt,
 		];
 		try {
-			const text = await runChild(args, cwd, VISION_TIMEOUT_MS, signal);
+			const invocation = getPiInvocation(args);
+			const text = await runChild(invocation.command, invocation.args, {
+				cwd,
+				timeoutMs: remaining,
+				signal,
+				onFailure: (stderr) => {
+					if (isUsageLimitError(stderr)) markExhaustedFromError(stderr, model);
+				},
+			});
 			if (text && !/VISION_FALLBACK_NEEDED/i.test(text)) {
 				return { text, model };
 			}

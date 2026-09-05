@@ -69,6 +69,7 @@ plugin({
 			exports: {
 				getAgentDir: () => TEST_AGENT_DIR,
 				formatSize: (bytes: number) => `${bytes} B`,
+				CONFIG_DIR_NAME: ".pi",
 			},
 			loader: "object",
 		}));

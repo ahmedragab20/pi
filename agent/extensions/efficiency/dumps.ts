@@ -1,4 +1,11 @@
-import { mkdirSync, readdirSync, statSync, unlinkSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
+import {
+	lstatSync,
+	mkdirSync,
+	readdirSync,
+	unlinkSync,
+	writeFileSync,
+} from "node:fs";
 import { join } from "node:path";
 import type { ImageContent, TextContent } from "@earendil-works/pi-ai";
 import { formatSize } from "@earendil-works/pi-coding-agent";
@@ -25,9 +32,33 @@ export function lastLines(text: string, n: number): string {
 }
 
 export function writeDump(id: string, text: string): string {
-	mkdirSync(dumpDir(), { recursive: true });
-	const path = dumpPath(id);
-	writeFileSync(path, text, "utf8");
+	// IDs can repeat across sessions/providers. Reuse immutable content-addressed
+	// files without mkdir/write syscalls on the hot context-folding path.
+	const hash = createHash("sha256").update(text).digest("hex");
+	const path = dumpPath(`${id.slice(0, 100)}-${hash}`);
+	const matches = () => {
+		try {
+			const existing = lstatSync(path);
+			if (
+				!existing.isFile() ||
+				existing.size !== Buffer.byteLength(text, "utf8")
+			) {
+				throw new Error("Existing tool dump is not a matching regular file");
+			}
+			return true;
+		} catch (error) {
+			if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
+			throw error;
+		}
+	};
+	if (matches()) return path;
+	mkdirSync(dumpDir(), { recursive: true, mode: 0o700 });
+	try {
+		writeFileSync(path, text, { encoding: "utf8", mode: 0o600, flag: "wx" });
+	} catch (error) {
+		if ((error as NodeJS.ErrnoException).code !== "EEXIST" || !matches())
+			throw error;
+	}
 	return path;
 }
 
@@ -42,8 +73,8 @@ export function pruneOldDumps(now = Date.now()): number {
 	for (const name of dir) {
 		const path = join(dumpDir(), name);
 		try {
-			const st = statSync(path);
-			if (now - st.mtimeMs > DUMP_MAX_AGE_MS) {
+			const st = lstatSync(path);
+			if (st.isFile() && now - st.mtimeMs > DUMP_MAX_AGE_MS) {
 				unlinkSync(path);
 				removed++;
 			}

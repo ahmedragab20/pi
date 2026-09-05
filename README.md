@@ -5,7 +5,7 @@ This repo is the pi-native port of the opencode AI Engineering System
 (subagents + vision routing) merged with the Cursor leader/worker and
 diffing-first workflow — stored as a dotfiles-style git repo at `~/.pi`.
 
-**pi is the active harness.** Default lead: `xai/grok-4.6` @ medium.
+**pi is the active harness.** Default lead: `openai-codex/gpt-6-astra` @ low.
 
 ## Layout
 
@@ -34,6 +34,7 @@ diffing-first workflow — stored as a dotfiles-style git repo at `~/.pi`.
 │   │   ├── vision-router.ts  — auto vision for pasted images
 │   │   ├── worker-model.ts   — worker model chain, OpenCode usage-out → ClinePass
 │   │   ├── opencode-fallback.ts — shared usage-limit detection
+│   │   ├── astra-1m-alias.ts — gpt-6-astra-1m → upstream gpt-6-astra
 │   │   ├── sol-1m-alias.ts   — gpt-5.6-sol-1m → upstream gpt-5.6-sol
 │   │   ├── btw.ts            — /btw side question overlay
 │   │   ├── collaborate.ts    — cheap workers + balanced Herdr peer teams
@@ -42,8 +43,8 @@ diffing-first workflow — stored as a dotfiles-style git repo at `~/.pi`.
 │   ├── prompts/              — /diffing /plan /review /finish /commit
 │   │                           /explore /implement /verify /debug /delegate /claude-review
 │   ├── themes/               — rose-pine (high-contrast TUI syntax)
-│   ├── settings.json         — xai/grok-4.6 default, Ctrl+P cycle,
-│   │                           compact TUI, nvim editor
+│   ├── settings.json         — openai-codex/gpt-6-astra default @ low,
+│   │                           Ctrl+P cycle, compact TUI, nvim editor
 │   ├── models.json           — model definitions
 │   └── keybindings.json      — vim-style editing; Ctrl+C interrupts
 └── .gitignore

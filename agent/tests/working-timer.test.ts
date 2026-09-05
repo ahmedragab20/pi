@@ -85,13 +85,38 @@ describe("working timer", () => {
 			await handlers.get("agent_start")![0]({}, ctx);
 			expect(workingMessages.at(-1)).toBe("Working... 00:00 · low");
 
+			await handlers.get("before_provider_request")![0](
+				{ payload: { reasoning: { effort: "low" } } },
+				ctx,
+			);
+			expect(workingMessages.at(-1)).toBe("Working... 00:00 · low");
+
 			now += 65_000;
 			intervalCb!();
 			expect(workingMessages.at(-1)).toBe("Working... 01:05 · low");
 
+			// Editor switches to high, but the provider said low — display stays low.
 			pi.setThinkingLevel("high");
 			await handlers.get("thinking_level_select")![0]({}, ctx);
+			expect(workingMessages.at(-1)).toBe("Working... 01:05 · low");
+			intervalCb!();
+			expect(workingMessages.at(-1)).toBe("Working... 01:05 · low");
+
+			// Provider now reports high — display follows the payload.
+			await handlers.get("before_provider_request")![0](
+				{ payload: { reasoning: { effort: "high" } } },
+				ctx,
+			);
 			expect(workingMessages.at(-1)).toBe("Working... 01:05 · high");
+			intervalCb!();
+			expect(workingMessages.at(-1)).toBe("Working... 01:05 · high");
+
+			// reasoning_effort payload (flat key) overrides the editor's high.
+			await handlers.get("before_provider_request")![0](
+				{ payload: { reasoning_effort: "medium" } },
+				ctx,
+			);
+			expect(workingMessages.at(-1)).toBe("Working... 01:05 · medium");
 
 			await handlers.get("agent_settled")![0]({}, ctx);
 			expect(workingMessages.at(-1)).toBeUndefined();

@@ -4,6 +4,7 @@
  * blocked for agent tools so their contents cannot enter a model transcript.
  */
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { canonicalPath } from "./security/paths.ts";
 
 const RULES: { pattern: RegExp; label: string }[] = [
 	{ pattern: /\bsudo\b/i, label: "privilege escalation (sudo)" },
@@ -77,7 +78,7 @@ function pathParts(raw: string): {
 	return { normalized, parts, base: parts.at(-1) ?? "" };
 }
 
-function isSecretPath(raw: string): boolean {
+export function isSecretPath(raw: string): boolean {
 	const { normalized, parts, base } = pathParts(raw);
 	if (normalized === "/etc/passwd" || normalized === "/etc/shadow") return true;
 	if (base === ".env" || base.startsWith(".env.")) return true;
@@ -86,7 +87,7 @@ function isSecretPath(raw: string): boolean {
 	return parts.includes(".git") && (base === "config" || base === "credentials");
 }
 
-function isWriteProtectedPath(raw: string): boolean {
+export function isWriteProtectedPath(raw: string): boolean {
 	if (isSecretPath(raw)) return true;
 	return pathParts(raw).parts.some((part) =>
 		WRITE_PROTECTED_COMPONENTS.has(part),
@@ -142,7 +143,7 @@ export default function securityGate(pi: ExtensionAPI) {
 			: isSecretPath;
 		const paths = protectedPaths(
 			event.input as Record<string, unknown>,
-			predicate,
+			(path) => predicate(path) || predicate(canonicalPath(path, ctx.cwd)),
 		);
 		if (paths.length > 0) {
 			if (ctx.hasUI) {

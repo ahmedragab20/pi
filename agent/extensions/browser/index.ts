@@ -4,10 +4,18 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import { execFile } from "node:child_process";
-import { mkdir } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
+import { chmod, mkdir } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
+import { StringDecoder } from "node:string_decoder";
+import {
+  isInteractiveAction,
+  validateBrowserArgs,
+  validateBrowserPath,
+  validateUrl,
+} from "./policy.ts";
 
 const execFileAsync = promisify(execFile);
 const DEFAULT_TIMEOUT_MS = 30_000;
@@ -21,18 +29,6 @@ const AGENT_BROWSER_BIN = join(
   "agent-browser",
 );
 const SCREENSHOT_DIR = join(homedir(), ".pi", "agent", "browser-artifacts");
-const PLAYWRIGHT_CHROME = join(
-  homedir(),
-  "Library",
-  "Caches",
-  "ms-playwright",
-  "chromium-1234",
-  "chrome-mac-arm64",
-  "Google Chrome for Testing.app",
-  "Contents",
-  "MacOS",
-  "Google Chrome for Testing",
-);
 
 const agentBrowserActions = [
   "open",
@@ -64,19 +60,6 @@ const agentBrowserActions = [
   "close",
 ] as const;
 
-const mutatingActions = new Set([
-  "click",
-  "dblclick",
-  "type",
-  "fill",
-  "press",
-  "select",
-  "check",
-  "uncheck",
-  "drag",
-  "upload",
-]);
-
 function boundedTimeout(value?: number): number {
   return Math.min(Math.max(value ?? DEFAULT_TIMEOUT_MS, 1_000), MAX_TIMEOUT_MS);
 }
@@ -91,7 +74,10 @@ function validateSession(session: string): void {
 
 function trimOutput(value: string): string {
   if (Buffer.byteLength(value) <= MAX_OUTPUT_BYTES) return value;
-  return `${value.slice(0, MAX_OUTPUT_BYTES)}\n\n[output truncated; narrow the request]`;
+  const prefix = new StringDecoder("utf8").write(
+    Buffer.from(value).subarray(0, MAX_OUTPUT_BYTES),
+  );
+  return `${prefix}\n\n[output truncated; narrow the request]`;
 }
 
 async function confirmConsequential(
@@ -99,20 +85,28 @@ async function confirmConsequential(
   action: string,
   args: string[],
   consequential: boolean,
+  signal?: AbortSignal,
 ): Promise<void> {
+  if (signal?.aborted) throw new Error("Browser action aborted");
   if (!consequential) return;
-  if (!mutatingActions.has(action)) {
-    throw new Error(
-      `consequential=true is only valid for an interactive action, not ${action}`,
-    );
-  }
   if (!ctx.hasUI)
     throw new Error(
       "Consequential browser actions require interactive user confirmation",
     );
+  let preview = args.join(" ");
+  if (action === "fill" || action === "type")
+    preview = `${args[0] ?? ""} [text hidden]`;
+  if (action === "find") {
+    const positional = validateBrowserArgs(action, args).positional;
+    const index = positional[0] === "nth" ? 3 : 2;
+    preview = positional.slice(0, index + 1).join(" ");
+    const name = args.indexOf("--name");
+    if (name >= 0) preview += ` --name ${args[name + 1]}`;
+  }
   const ok = await ctx.ui.confirm(
     "Allow browser action?",
-    `${action} ${args.join(" ")}\n\nThis was marked consequential (submit, purchase, message, upload, login, or data change).`,
+    `${action} ${preview}\n\nThis action can submit, upload, log in, or change external data. Approve this individual action?`,
+    { signal },
   );
   if (!ok) throw new Error("Browser action blocked by user");
 }
@@ -120,13 +114,27 @@ async function confirmConsequential(
 export default function browserExtension(pi: ExtensionAPI) {
   let fallbackBrowser: import("playwright").Browser | undefined;
   let fallbackPage: import("playwright").Page | undefined;
+  let fallbackBusy = false;
+  const sessionPrefix = randomUUID().slice(0, 8);
+  const sessions = new Set<string>();
+  const browserEnv = Object.fromEntries(
+    Object.entries(process.env).filter(
+      ([key]) => !key.startsWith("AGENT_BROWSER_"),
+    ),
+  );
+
+  async function closeFallback() {
+    const browser = fallbackBrowser;
+    fallbackBrowser = undefined;
+    fallbackPage = undefined;
+    await browser?.close().catch(() => undefined);
+  }
 
   async function page() {
     if (!fallbackBrowser) {
       const { chromium } = await import("playwright");
       fallbackBrowser = await chromium.launch({
         headless: true,
-        executablePath: PLAYWRIGHT_CHROME,
       });
     }
     if (!fallbackPage || fallbackPage.isClosed()) {
@@ -140,7 +148,7 @@ export default function browserExtension(pi: ExtensionAPI) {
     name: "agent_browser",
     label: "Agent Browser",
     description:
-      "Primary browser automation tool backed by agent-browser. Prefer snapshot then @ref interactions; use read for text-heavy pages and screenshots only when visual evidence matters. args are the CLI arguments after the action. Mark consequential=true before any submit, purchase, message, upload, login, or external data change so the user must confirm. JavaScript eval and AI chat are intentionally unavailable. Sessions persist across calls.",
+      "Primary browser automation tool backed by agent-browser. Prefer snapshot then @ref interactions; use read for text-heavy pages and screenshots only when visual evidence matters. args are a validated subset of CLI arguments; use absolute HTTP(S) URLs. Interactive mutations always require confirmation, including find actions, even if consequential=false. Set consequential=true to request confirmation for any additional action. JavaScript, global CLI overrides, and AI chat are unavailable. Sessions persist across calls within this pi session.",
     parameters: Type.Object({
       action: Type.Union(
         agentBrowserActions.map((value) => Type.Literal(value)),
@@ -167,21 +175,53 @@ export default function browserExtension(pi: ExtensionAPI) {
       ),
     }),
     async execute(_id, params, signal, _onUpdate, ctx) {
+      if (signal?.aborted) throw new Error("Browser action aborted");
       const session = params.session ?? "pi";
-      const args = params.args ?? [];
+      const args = [...(params.args ?? [])];
       validateSession(session);
+      const policy = validateBrowserArgs(params.action, args);
+      let outputPath: string | undefined;
+      if (params.action === "screenshot" || params.action === "pdf") {
+        const extension = params.action === "pdf" ? "pdf" : "png";
+        const raw =
+          policy.positional[0] ??
+          join(SCREENSHOT_DIR, `${session}-${randomUUID()}.${extension}`);
+        outputPath = validateBrowserPath(raw, ctx.cwd, SCREENSHOT_DIR, true);
+        if (
+          !(params.action === "pdf" ? /\.pdf$/i : /\.(png|jpe?g|webp)$/i).test(
+            outputPath,
+          )
+        ) {
+          throw new Error(
+            "Browser output path must have the matching image or PDF extension",
+          );
+        }
+        if (policy.positional[0]) args[args.indexOf(raw)] = outputPath;
+        else args.push(outputPath);
+      }
+      if (params.action === "upload") {
+        for (let i = 1; i < args.length; i++) {
+          args[i] = validateBrowserPath(
+            args[i],
+            ctx.cwd,
+            SCREENSHOT_DIR,
+            false,
+          );
+        }
+      }
       await confirmConsequential(
         ctx,
         params.action,
         args,
-        params.consequential ?? false,
+        policy.needsConfirmation || params.consequential === true,
+        signal,
       );
-      await mkdir(SCREENSHOT_DIR, { recursive: true });
+      if (signal?.aborted) throw new Error("Browser action aborted");
+      await mkdir(SCREENSHOT_DIR, { recursive: true, mode: 0o700 });
 
-      const commandArgs = ["--session", session, params.action, ...args];
-      if (params.action === "screenshot" && args.length === 0) {
-        commandArgs.push(join(SCREENSHOT_DIR, `${session}-${Date.now()}.png`));
-      }
+      const browserSession = `${sessionPrefix}-${session}`;
+      sessions.add(browserSession);
+      const commandArgs = ["--session", browserSession, params.action, ...args];
 
       try {
         const { stdout, stderr } = await execFileAsync(
@@ -191,9 +231,12 @@ export default function browserExtension(pi: ExtensionAPI) {
             timeout: boundedTimeout(params.timeoutMs),
             maxBuffer: 2 * 1024 * 1024,
             signal,
-            env: { ...process.env, NO_COLOR: "1" },
+            env: { ...browserEnv, NO_COLOR: "1" },
+            cwd: SCREENSHOT_DIR,
           },
         );
+        if (outputPath) await chmod(outputPath, 0o600);
+        if (params.action === "close") sessions.delete(browserSession);
         const text = trimOutput(
           [stdout, stderr].filter(Boolean).join("\n").trim() || "OK",
         );
@@ -204,20 +247,17 @@ export default function browserExtension(pi: ExtensionAPI) {
       } catch (error) {
         const failure = error as Error & { stdout?: string; stderr?: string };
         const detail = trimOutput(
-          [failure.message, failure.stdout, failure.stderr]
+          [
+            "Browser command failed or was cancelled",
+            failure.stdout,
+            failure.stderr,
+          ]
             .filter(Boolean)
             .join("\n"),
         );
-        return {
-          content: [
-            {
-              type: "text",
-              text: `${detail}\n\nUse browser_playwright only if agent-browser itself is unavailable or incompatible with the page.`,
-            },
-          ],
-          details: { backend: "agent-browser", session },
-          isError: true,
-        };
+        throw new Error(
+          `${detail}\n\nUse browser_playwright only if agent-browser itself is unavailable or incompatible with the page.`,
+        );
       }
     },
   });
@@ -226,7 +266,7 @@ export default function browserExtension(pi: ExtensionAPI) {
     name: "browser_playwright",
     label: "Browser (Playwright fallback)",
     description:
-      "Fallback browser tool. Use only when the primary browser tool is unavailable or incompatible. Prefer DOM text over screenshots. Mark consequential=true before submit, purchase, message, upload, login, or external data change.",
+      "Fallback browser tool. Use only when the primary browser tool is unavailable or incompatible. Prefer DOM text over screenshots. Interactive mutations always require confirmation; consequential=false cannot bypass it. Use absolute HTTP(S) URLs. Set consequential=true for additional confirmation.",
     parameters: Type.Object({
       action: Type.Union([
         Type.Literal("open"),
@@ -249,18 +289,43 @@ export default function browserExtension(pi: ExtensionAPI) {
       ),
       consequential: Type.Optional(Type.Boolean()),
     }),
-    async execute(_id, params, _signal, _onUpdate, ctx) {
+    async execute(_id, params, signal, _onUpdate, ctx) {
+      if (signal?.aborted) throw new Error("Browser action aborted");
+      if (fallbackBusy)
+        throw new Error(
+          "Playwright fallback already has an action in progress",
+        );
+      if (params.action === "open") validateUrl(params.target ?? "");
+      if (params.action === "screenshot" && params.target) {
+        params.target = validateBrowserPath(
+          params.target,
+          ctx.cwd,
+          SCREENSHOT_DIR,
+          true,
+        );
+        if (!/\.(png|jpe?g|webp)$/i.test(params.target))
+          throw new Error("Screenshot requires an image extension");
+      }
       await confirmConsequential(
         ctx,
         params.action,
         [params.target, params.value].filter(Boolean) as string[],
-        params.consequential ?? false,
+        isInteractiveAction(params.action) || params.consequential === true,
+        signal,
       );
+      if (signal?.aborted) throw new Error("Browser action aborted");
+      if (fallbackBusy)
+        throw new Error(
+          "Playwright fallback already has an action in progress",
+        );
+      fallbackBusy = true;
+      const onAbort = () => {
+        void closeFallback();
+      };
+      signal?.addEventListener("abort", onAbort, { once: true });
       try {
         if (params.action === "close") {
-          await fallbackBrowser?.close();
-          fallbackBrowser = undefined;
-          fallbackPage = undefined;
+          await closeFallback();
           return {
             content: [
               { type: "text", text: "Closed Playwright fallback browser" },
@@ -270,6 +335,7 @@ export default function browserExtension(pi: ExtensionAPI) {
         }
 
         const currentPage = await page();
+        if (signal?.aborted) throw new Error("Browser action aborted");
         let text: string;
         switch (params.action) {
           case "open":
@@ -315,11 +381,12 @@ export default function browserExtension(pi: ExtensionAPI) {
             );
             break;
           case "screenshot": {
-            await mkdir(SCREENSHOT_DIR, { recursive: true });
+            await mkdir(SCREENSHOT_DIR, { recursive: true, mode: 0o700 });
             const path =
               params.target ??
               join(SCREENSHOT_DIR, `playwright-${Date.now()}.png`);
             await currentPage.screenshot({ path, fullPage: true });
+            await chmod(path, 0o600);
             text = path;
             break;
           }
@@ -330,22 +397,32 @@ export default function browserExtension(pi: ExtensionAPI) {
           content: [{ type: "text", text }],
           details: { backend: "playwright", url: currentPage.url() },
         };
-      } catch (error) {
-        return {
-          content: [
-            {
-              type: "text",
-              text: error instanceof Error ? error.message : String(error),
-            },
-          ],
-          details: { backend: "playwright" },
-          isError: true,
-        };
+      } catch {
+        throw new Error(
+          signal?.aborted
+            ? "Browser action aborted"
+            : "Playwright action failed; check page state and installed browser",
+        );
+      } finally {
+        signal?.removeEventListener("abort", onAbort);
+        if (signal?.aborted) await closeFallback();
+        fallbackBusy = false;
       }
     },
   });
 
   pi.on("session_shutdown", async () => {
-    await fallbackBrowser?.close().catch(() => undefined);
+    await closeFallback();
+    await Promise.all(
+      [...sessions].map((session) =>
+        execFileAsync(AGENT_BROWSER_BIN, ["--session", session, "close"], {
+          timeout: 5_000,
+          maxBuffer: MAX_OUTPUT_BYTES,
+          env: browserEnv,
+          cwd: SCREENSHOT_DIR,
+        }).catch(() => undefined),
+      ),
+    );
+    sessions.clear();
   });
 }

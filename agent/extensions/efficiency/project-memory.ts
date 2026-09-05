@@ -3,9 +3,20 @@
  * mid-session (memory worker refresh) or after compaction wipes it.
  */
 import { createHash } from "node:crypto";
-import { existsSync, readFileSync, statSync } from "node:fs";
+import {
+	closeSync,
+	existsSync,
+	fstatSync,
+	openSync,
+	readSync,
+	statSync,
+} from "node:fs";
+import { StringDecoder } from "node:string_decoder";
 import { join } from "node:path";
-import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type {
+	ExtensionAPI,
+	ExtensionContext,
+} from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
 import { CONFIG_DIR_NAME } from "@earendil-works/pi-coding-agent";
 import { MEMORY_MAX_BYTES, memoryDir } from "./constants.ts";
@@ -45,7 +56,21 @@ function readMemoryFile(path: string): MemoryFile {
 	try {
 		const st = statSync(path);
 		if (!st.isFile() || st.size === 0) return { size: 0 };
-		const text = readFileSync(path, "utf8").trim();
+		const fd = openSync(path, "r");
+		let text: string;
+		try {
+			if (!fstatSync(fd).isFile()) return { size: 0 };
+			const buffer = Buffer.alloc(Math.min(st.size, MEMORY_MAX_BYTES));
+			let bytes = 0;
+			while (bytes < buffer.length) {
+				const count = readSync(fd, buffer, bytes, buffer.length - bytes, bytes);
+				if (count === 0) break;
+				bytes += count;
+			}
+			text = new StringDecoder("utf8").write(buffer.subarray(0, bytes)).trim();
+		} finally {
+			closeSync(fd);
+		}
 		if (!text) return { size: st.size };
 		if (st.size <= MEMORY_MAX_BYTES) return { text, size: st.size };
 		const cut = truncateUtf8(text, MEMORY_MAX_BYTES);
@@ -62,39 +87,57 @@ function hashText(text: string): string {
 	return createHash("sha256").update(text).digest("hex").slice(0, 16);
 }
 
-function alreadyInBranch(ctx: ExtensionContext): boolean {
-	return ctx.sessionManager.getBranch().some(
-		(entry) =>
-			entry.type === "custom_message" && entry.customType === "project-memory",
-	);
-}
-
-let lastInjected: { path: string; hash: string; mtime: number } | null = null;
-
-function injectMemory(pi: ExtensionAPI, ctx: ExtensionContext, updated: boolean): void {
-	const path = resolveMemoryPath(ctx);
-	let mtime = 0;
-	try {
-		mtime = statSync(path).mtimeMs;
-	} catch {
-		lastInjected = null;
-		return;
-	}
-	const { text } = readMemoryFile(path);
-	if (!text) {
-		lastInjected = null;
-		return;
-	}
-	lastInjected = { path, hash: hashText(text), mtime };
-	pi.sendMessage({
-		customType: "project-memory",
-		content: `Project memory (${path})${updated ? " — updated since last injection" : ""}:\n\n${text}`,
-		display: true,
-		details: { path, updated } satisfies MemoryDetails,
-	});
+function memoryContent(path: string, text: string, updated: boolean): string {
+	return `Project memory (${path})${updated ? " — updated since last injection" : ""}:\n\n${text}`;
 }
 
 export function registerProjectMemory(pi: ExtensionAPI): void {
+	let lastInjected: { path: string; hash: string; mtime: number } | null = null;
+
+	const syncMemory = (ctx: ExtensionContext, force = false) => {
+		const path = resolveMemoryPath(ctx);
+		let mtime: number;
+		try {
+			mtime = statSync(path).mtimeMs;
+		} catch {
+			lastInjected = null;
+			return;
+		}
+		if (!force && lastInjected?.path === path && lastInjected.mtime === mtime)
+			return;
+		const { text } = readMemoryFile(path);
+		if (!text) {
+			lastInjected = null;
+			return;
+		}
+		const hash = hashText(text);
+		const previous = lastInjected;
+		lastInjected = { path, hash, mtime };
+		if (!force && previous?.path === path && previous.hash === hash) return;
+
+		const packet = [...ctx.sessionManager.getBranch()]
+			.reverse()
+			.find(
+				(entry) =>
+					entry.type === "custom_message" && entry.customType === "project-memory",
+			);
+		if (
+			!force &&
+			packet?.type === "custom_message" &&
+			(packet.content === memoryContent(path, text, false) ||
+				packet.content === memoryContent(path, text, true))
+		)
+			return;
+
+		const updated = Boolean(previous || packet);
+		pi.sendMessage({
+			customType: "project-memory",
+			content: memoryContent(path, text, updated),
+			display: true,
+			details: { path, updated } satisfies MemoryDetails,
+		});
+	};
+
 	pi.registerMessageRenderer("project-memory", (message, _opts, theme) => {
 		const details = message.details as MemoryDetails | undefined;
 		const path = details?.path ?? "";
@@ -102,47 +145,19 @@ export function registerProjectMemory(pi: ExtensionAPI): void {
 		return new Text(theme.fg("muted", `memory${updated} · ${path}`), 0, 0);
 	});
 
-	pi.on("session_start", (_event, ctx) => {
-		if (alreadyInBranch(ctx)) return;
-		injectMemory(pi, ctx, false);
+	const restore = (_event: unknown, ctx: ExtensionContext) => {
+		lastInjected = null;
+		syncMemory(ctx);
+	};
+	pi.on("session_start", restore);
+	pi.on("session_tree", restore);
+	pi.on("session_shutdown", () => {
+		lastInjected = null;
 	});
-
-	// Mid-session refresh: the memory worker rewrote the file — re-inject.
-	// Also bootstraps a file that only appeared after session start.
-	pi.on("agent_settled", (_event, ctx) => {
-		if (!lastInjected) {
-			if (alreadyInBranch(ctx)) return;
-			injectMemory(pi, ctx, false);
-			return;
-		}
-		const path = lastInjected.path;
-		let mtime: number;
-		try {
-			mtime = statSync(path).mtimeMs;
-		} catch {
-			return;
-		}
-		if (mtime === lastInjected.mtime) return;
-		const { text } = readMemoryFile(path);
-		if (!text) return;
-		const hash = hashText(text);
-		if (hash === lastInjected.hash) {
-			lastInjected = { ...lastInjected, mtime };
-			return;
-		}
-		lastInjected = { path, hash, mtime };
-		pi.sendMessage({
-			customType: "project-memory",
-			content: `Project memory (${path}) — updated since last injection:\n\n${text}`,
-			display: true,
-			details: { path, updated: true } satisfies MemoryDetails,
-		});
-	});
+	pi.on("agent_settled", (_event, ctx) => syncMemory(ctx));
 
 	// Compaction can summarize the injected packet away — restore it.
-	pi.on("session_compact", (_event, ctx) => {
-		injectMemory(pi, ctx, false);
-	});
+	pi.on("session_compact", (_event, ctx) => syncMemory(ctx, true));
 
 	pi.registerCommand("memory", {
 		description: "Show project memory path, or `refresh` for the spawn brief",

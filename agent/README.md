@@ -6,7 +6,7 @@ leader/worker and diffing-first workflow. Built for a nerd neovim user: vim
 keybindings, nvim external editor, cheap Flash workers, human-in-the-loop
 review everywhere.
 
-**pi is the active harness.** Default lead: `openai-codex/gpt-5.6-sol` @ low.
+**pi is the active harness.** Default lead: `openai-codex/gpt-6-astra` @ low.
 
 ## Architecture — Smart Lead, Workers Follow
 
@@ -31,7 +31,8 @@ The lead owns every request end to end. It reasons, implements substantively,
 and delegates only mechanical chores to cheap Flash workers, which run in
 isolated sessions with their own context windows. Flash workers use OpenCode
 Go GLM-5.3 Flash, then OpenCode Go DeepSeek V4 Flash. A multimodal lead
-(`openai-codex/gpt-5.6-sol`, `openai-codex/gpt-5.6-sol-1m`, or `xai/grok-4.6`)
+(`openai-codex/gpt-6-astra`, `openai-codex/gpt-6-astra-1m`,
+`openai-codex/gpt-5.6-sol`, `openai-codex/gpt-5.6-sol-1m`, or `xai/grok-4.6`)
 sees pasted images natively and nothing is routed.
 A text-only lead (every `cursor/*` model) triggers `extensions/vision-router.ts`,
 which forks a headless `pi -p` child down its own model chain and injects a
@@ -51,7 +52,7 @@ owns design, debugging, fixes, review; workers do one chore and never recurse.
 
 ```
 ~/.pi/agent/
-├── settings.json          — default openai-codex/gpt-5.6-sol @ low, Ctrl+P cycle
+├── settings.json          — default openai-codex/gpt-6-astra @ low, Ctrl+P cycle
 │                             (enabledModels), compact TUI, nvim editor
 ├── models.json            — model definitions (xai/grok-4.6: 500K context,
 │                             $2/$6, long-context $4/$12 above 200K input;
@@ -84,6 +85,7 @@ owns design, debugging, fixes, review; workers do one chore and never recurse.
 │   ├── btw.ts             — /btw side question overlay (no tools, no history)
 │   ├── goal.ts            — /goal loop: criteria, roadmap, evidence, gates
 │   ├── collaborate.ts     — cheap workers + balanced Herdr peer teams
+│   ├── astra-1m-alias.ts  — openai-codex/gpt-6-astra-1m → gpt-6-astra
 │   ├── sol-1m-alias.ts    — openai-codex/gpt-5.6-sol-1m → gpt-5.6-sol
 │   └── pi-tool-repair.json — grammar recovery for kimi/glm/qwen/minimax
 ├── npm/                   — pi packages (pi-subagents, vim, …)
@@ -99,12 +101,14 @@ owns design, debugging, fixes, review; workers do one chore and never recurse.
 
 ## Model Inventory
 
-`settings.json` is authoritative. **Default:** `openai-codex/gpt-5.6-sol` @ low.
+`settings.json` is authoritative. **Default:** `openai-codex/gpt-6-astra` @ low.
 **Ctrl+P cycles `enabledModels` (in order):**
 
 | Model | Provider | Role |
 | ------- | ---------- | ------ |
-| `openai-codex/gpt-5.6-sol` | openai-codex | Default lead — 272K window |
+| `openai-codex/gpt-6-astra` | openai-codex | Default lead |
+| `openai-codex/gpt-6-astra-1m` | openai-codex | Lead — 1M alias |
+| `openai-codex/gpt-5.6-sol` | openai-codex | Lead — 272K window |
 | `openai-codex/gpt-5.6-sol-1m` | openai-codex | Lead — 1.05M context |
 | `xai/grok-4.6` | xai | Lead — 500K context |
 | `opencode-go/deepseek-v4-pro` | Go bundle | Lead |
@@ -118,10 +122,12 @@ Everything else stays on `/model` (not the cycle). The
 `opencode/deepseek-v4-flash-free` model is auto-provisioned outside the cycle
 and used by `efficiency/cheap-compact.ts` for compaction.
 
-Default lead `openai-codex/gpt-5.6-sol` is the built-in 272K Codex model @ low thinking.
+Default lead `openai-codex/gpt-6-astra` uses the built-in Codex provider @ low
+thinking.
 `xai/grok-4.6` is a custom merge in `models.json`: openai-responses API, 500K context,
 $2/$6 (long-context $4/$12 above 200K input), thinking low/medium/high/xhigh.
 
+`gpt-6-astra-1m` rewrites to upstream `gpt-6-astra` via `astra-1m-alias.ts`.
 `gpt-5.6-sol-1m` is 1.05M context (rewrites to upstream `gpt-5.6-sol`;
 long-context pricing above 272K input).
 
@@ -339,3 +345,22 @@ execution, not V8 compilation.
 - TUI: tool/user cards use rose-pine `surface`/`overlay`. Code blocks use the high-contrast rose-pine syntax map (iris keywords, rose functions, foam types/vars, gold strings/numbers). Pasted images and long inserts become `[Image #N]` / `[Paste #N · …]` chips (`extensions/00-paste-chips.ts`).
 - Deferred tools: core coding tools stay on; package extras start off (`tool_search` / `/tools`).
 - Auth: `opencode-go` and `opencode` API keys are in `~/.pi/agent/auth.json` (via `/login`). Cursor auth is the Cursor provider.
+
+## Hardening and regression checks
+
+Canonical regression command: `npm run check --prefix agent/npm`.
+
+The browser tool only accepts validated per-action options and HTTP(S) URLs;
+JavaScript and global-flag overrides are blocked. Interactive mutations always
+prompt, even with `consequential=false` — including nested find actions.
+Uploads and image/PDF outputs are limited to the workspace and
+browser-artifacts directories, with protected symlink checks. Browser names
+are scoped to the pi extension session and cleaned up on shutdown. Memory
+refresh is initialized after resume/tree. Tool dump filenames include a
+content hash and are written with exclusive 0600 permissions. Vision output is
+bounded to 1 MiB with a single 90-second fallback deadline and TERM→KILL on
+actual non-exit. The working indicator latches dispatched-request thinking;
+editor selection affects the next request.
+
+The security gate remains preflight guardrails, not an OS sandbox.
+Provider-routing policy and dependency portability are unchanged.

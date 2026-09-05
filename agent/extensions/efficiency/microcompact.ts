@@ -85,14 +85,21 @@ function readKeyFromCalls(messages: MessageLike[]): Map<string, string> {
 	return keys;
 }
 
-function foldStub(name: string, id: string, text: string): string {
+function foldStub(
+	name: string,
+	id: string,
+	text: string,
+): { text: string; dump: string } {
 	const compressedDump = text.startsWith(COMPRESSED_MARKER)
 		? text.split("\n", 1)[0]?.match(/→\s+(.+)$/)?.[1]
 		: undefined;
 	const dump = compressedDump ?? writeDump(id, text);
 	const bytes = Buffer.byteLength(text, "utf8");
 	const tail = lastLines(text, FOLD_TAIL_LINES);
-	return `${FOLDED_MARKER} ${name} ${formatSize(bytes)} → ${dump} — last ${FOLD_TAIL_LINES} lines:\n${tail}`;
+	return {
+		text: `${FOLDED_MARKER} ${name} ${formatSize(bytes)} → ${dump} — last ${FOLD_TAIL_LINES} lines:\n${tail}`,
+		dump,
+	};
 }
 
 function alreadyFolded(text: string): boolean {
@@ -142,11 +149,12 @@ export function registerMicrocompact(pi: ExtensionAPI): void {
 					return m;
 				}
 				folded++;
+				const stub = foldStub("bash", `bash-${m.timestamp}`, text);
 				return {
 					...m,
-					output: foldStub("bash", `bash-${m.timestamp}`, text),
+					output: stub.text,
 					truncated: true,
-					fullOutputPath: writeDump(`bash-${m.timestamp}`, text),
+					fullOutputPath: stub.dump,
 				};
 			}
 
@@ -170,7 +178,7 @@ export function registerMicrocompact(pi: ExtensionAPI): void {
 				content: [
 					{
 						type: "text" as const,
-						text: foldStub(m.toolName, m.toolCallId, text),
+						text: foldStub(m.toolName, m.toolCallId, text).text,
 					},
 				],
 			};

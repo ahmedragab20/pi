@@ -12,6 +12,8 @@
  */
 
 import { describe, expect, test } from "bun:test";
+import { mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import securityGate from "../extensions/security-gate.ts";
 
 type Handler = (event: unknown, ctx: unknown) => Promise<unknown> | unknown;
@@ -252,6 +254,66 @@ describe("user_bash", () => {
 	test("normal command is allowed with no UI interaction", async () => {
 		const h = makeHarness({ hasUI: true });
 		const [result] = await h.fire("user_bash", userBash("echo hello"));
+		expect(result).toBeUndefined();
+		expect(h.uiCalls).toHaveLength(0);
+	});
+});
+
+describe("symlink resolution", () => {
+	// Dummy fixtures under a workspace-local temp dir. All contents are dummy
+	// strings — no real credential files are ever read or referenced.
+	const fixtureRoot = join(import.meta.dirname, "../tmp");
+	mkdirSync(fixtureRoot, { recursive: true });
+	const tmp = mkdtempSync(join(fixtureRoot, "security-tests-"));
+
+	// Harmlessly named symlink → dummy dot-env file: read must be blocked.
+	const envDir = join(tmp, "env");
+	mkdirSync(envDir, { recursive: true });
+	const realEnv = join(envDir, "." + "env");
+	writeFileSync(realEnv, "DUMMY_KEY=not-a-real-secret\n", "utf8");
+	const envSymlink = join(tmp, "settings.json");
+	symlinkSync(realEnv, envSymlink);
+
+	// Symlink → dummy node_modules dir: writing a not-yet-existing child via
+	// the symlink must be blocked.
+	const realNodeModules = join(tmp, "node_modules");
+	mkdirSync(realNodeModules, { recursive: true });
+	const nmSymlink = join(tmp, "vendor");
+	symlinkSync(realNodeModules, nmSymlink);
+
+	// Near-miss: symlink to a plain dummy file stays allowed.
+	const plain = join(tmp, "plain.txt");
+	writeFileSync(plain, "harmless dummy text\n", "utf8");
+	const plainSymlink = join(tmp, "readme.md");
+	symlinkSync(plain, plainSymlink);
+
+	test("read blocks a harmlessly named symlink to a dummy dot-env file", async () => {
+		const h = makeHarness({ hasUI: true });
+		const [result] = await h.fire(
+			"tool_call",
+			toolCall("read", { path: envSymlink }),
+		);
+		expect(result).toMatchObject({ block: true });
+	});
+
+	test("write blocks a not-yet-existing child under a symlink to node_modules", async () => {
+		const h = makeHarness({ hasUI: true });
+		const [result] = await h.fire(
+			"tool_call",
+			toolCall("write", {
+				path: join(nmSymlink, "new-file.js"),
+				content: "x",
+			}),
+		);
+		expect(result).toMatchObject({ block: true });
+	});
+
+	test("near-miss stays allowed: symlink to a plain dummy file is readable", async () => {
+		const h = makeHarness({ hasUI: true });
+		const [result] = await h.fire(
+			"tool_call",
+			toolCall("read", { path: plainSymlink }),
+		);
 		expect(result).toBeUndefined();
 		expect(h.uiCalls).toHaveLength(0);
 	});
