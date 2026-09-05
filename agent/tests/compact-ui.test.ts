@@ -1,5 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import compactFooterExtension from "../extensions/compact-footer.ts";
+import compactFooterExtension, {
+	formatGitStatus,
+} from "../extensions/compact-footer.ts";
 import todoExtension from "../extensions/todo.ts";
 import workingTimerExtension, {
 	formatElapsed,
@@ -191,6 +193,14 @@ describe("working timer", () => {
 });
 
 describe("compact footer", () => {
+	test("formats git state with compact symbols", () => {
+		expect(formatGitStatus("")).toBe("✓");
+		expect(
+			formatGitStatus("M  staged.ts\0 M modified.ts\0?? new.ts\0UU conflict.ts\0"),
+		).toBe("+1 ~1 ?1 !1");
+		expect(formatGitStatus("R  renamed.ts\0old.ts\0 M next.ts\0")).toBe("+1 ~1");
+	});
+
 	test("renders a single balanced line and wires branch subscription as dispose", () => {
 		const { pi, handlers } = makePi();
 		compactFooterExtension(pi as never);

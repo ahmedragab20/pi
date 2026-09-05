@@ -39,12 +39,93 @@ function compactStatuses(
 	return compact;
 }
 
-function installFooter(ctx: ExtensionContext): void {
+export function formatGitStatus(output: string): string {
+	let staged = 0;
+	let modified = 0;
+	let untracked = 0;
+	let conflicts = 0;
+	const entries = output.split("\0");
+	for (let i = 0; i < entries.length; i++) {
+		const entry = entries[i];
+		if (!entry) continue;
+		const status = entry.slice(0, 2);
+		if (status === "??") {
+			untracked++;
+			continue;
+		}
+		if (status === "!!") continue;
+		if (["DD", "AU", "UD", "UA", "DU", "AA", "UU"].includes(status)) {
+			conflicts++;
+		} else {
+			if (status[0] !== " ") staged++;
+			if (status[1] !== " ") modified++;
+		}
+		// With -z, renames/copies include a second NUL-delimited pathname.
+		if (/[RC]/.test(status)) i++;
+	}
+	return (
+		[
+			staged ? `+${staged}` : "",
+			modified ? `~${modified}` : "",
+			untracked ? `?${untracked}` : "",
+			conflicts ? `!${conflicts}` : "",
+		]
+			.filter(Boolean)
+			.join(" ") || "✓"
+	);
+}
+
+function installFooter(pi: ExtensionAPI, ctx: ExtensionContext): void {
 	if (!ctx.hasUI) return;
 	ctx.ui.setFooter((tui, theme, footerData) => {
-		const unsubscribe = footerData.onBranchChange(() => tui.requestRender());
+		let gitStatus: string | undefined;
+		let disposed = false;
+		let refreshing = false;
+		const controller = new AbortController();
+		const refresh = async () => {
+			if (disposed || refreshing) return;
+			refreshing = true;
+			let next: string | undefined;
+			try {
+				const result = await pi.exec(
+					"git",
+					[
+						"-C",
+						ctx.cwd,
+						"--no-optional-locks",
+						"status",
+						"--porcelain=v1",
+						"-z",
+						"--untracked-files=normal",
+					],
+					{ timeout: 4000, signal: controller.signal },
+				);
+				if (result.code === 0 && !result.killed)
+					next = formatGitStatus(result.stdout);
+			} catch {
+				// Git may be unavailable or the directory may not be a repository.
+			} finally {
+				refreshing = false;
+			}
+			if (!disposed && next !== gitStatus) {
+				gitStatus = next;
+				tui.requestRender();
+			}
+		};
+		const unsubscribe = footerData.onBranchChange(() => {
+			tui.requestRender();
+			void refresh();
+		});
+		const timer = setInterval(() => void refresh(), 5000);
+		timer.unref?.();
+		void refresh();
 		return {
-			dispose: unsubscribe,
+			dispose() {
+				disposed = true;
+				clearInterval(timer);
+				controller.abort();
+				unsubscribe();
+			},
 			invalidate() {},
 			render(width: number): string[] {
 				const branch = footerData.getGitBranch();
@@ -53,6 +134,9 @@ function installFooter(ctx: ExtensionContext): void {
 					: basename(ctx.cwd);
 				const parts = [
 					theme.fg("muted", location),
+					gitStatus
+						? theme.fg(gitStatus === "✓" ? "success" : "warning", gitStatus)
+						: undefined,
 					formatContext(ctx, theme),
 					ctx.model?.id ? theme.fg("muted", ctx.model.id) : undefined,
 					...compactStatuses(footerData.getExtensionStatuses(), theme),
@@ -65,5 +149,8 @@ function installFooter(ctx: ExtensionContext): void {
 }
 
 export default function compactFooter(pi: ExtensionAPI): void {
-	pi.on("session_start", (_event, ctx) => installFooter(ctx));
+	pi.on("session_start", (_event, ctx) => installFooter(pi, ctx));
+	pi.on("session_shutdown", (_event, ctx) => {
+		if (ctx.hasUI) ctx.ui.setFooter(undefined);
+	});
 }
