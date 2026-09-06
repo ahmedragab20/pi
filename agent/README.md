@@ -113,15 +113,13 @@ owns design, debugging, fixes, review; workers do one chore and never recurse.
 | `openai-codex/gpt-5.6-sol-1m` | openai-codex | Lead — 1.05M context |
 | `xai/grok-4.6` | xai | Lead — 500K context |
 | `opencode-go/deepseek-v4-pro` | Go bundle | Lead |
-| `opencode-go/deepseek-v4-flash` | Go bundle | Worker Flash / cheap compact |
+| `opencode-go/deepseek-v4-flash` | Go bundle | Optional lead |
 | `opencode-go/glm-5.3` | Go bundle | Lead |
 | `opencode-go/glm-5.3-flash` | Go bundle | Worker Flash |
 
 Cursor models are deliberately out of the Ctrl+P cycle. The Cursor provider is no longer registered at startup, so `enabledModels` cannot resolve `cursor/*` entries there and listing them only produced boot warnings. Run `/cursor-load` once to register the provider, then pick Cursor models with `/model`.
 
-Everything else stays on `/model` (not the cycle). The
-`opencode/deepseek-v4-flash-free` model is auto-provisioned outside the cycle
-and used by `efficiency/cheap-compact.ts` for compaction.
+Everything else stays on `/model` (not the cycle).
 
 Default lead `openai-codex/gpt-6-astra` uses the built-in Codex provider @ low
 thinking.
@@ -167,7 +165,7 @@ the lead merges. Keymaps: [SUBAGENTS.md](SUBAGENTS.md).
 | `/memory` / `/memory refresh` | Show memory file + size / print the exact `memory` spawn brief |
 | `/thinking-router [on\|off\|status]` | Auto thinking from the prompt |
 | `/context-efficiency` | Small-window early compact status |
-| `/compact` | Stock compact, summarized by Flash when available |
+| `/compact` | Stock compact, summarized by the active lead model |
 
 Huge bash/read results are capped at ingest (dump under `~/.pi/agent/tmp/tool-dumps/`). Core tools stay on; `tool_search` activates the rest. Shift+Tab locks thinking-router until `/thinking-router on`.
 

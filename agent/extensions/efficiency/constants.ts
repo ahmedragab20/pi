@@ -40,11 +40,6 @@ export const COMPRESSIBLE_TOOLS = new Set([
 	"ls",
 ]);
 
-export const CHEAP_COMPACT_MODELS: Array<[string, string]> = [
-	["opencode", "deepseek-v4-flash-free"],
-	["opencode-go", "deepseek-v4-flash"],
-];
-
 export const FOLDED_MARKER = "[folded]";
 export const COMPRESSED_MARKER = "[compressed]";
 
