@@ -12,6 +12,9 @@ declare module "bun:test" {
 	}
 
 	export function beforeEach(callback: () => unknown | Promise<unknown>): void;
+	export function beforeAll(callback: () => unknown | Promise<unknown>): void;
+	export function afterEach(callback: () => unknown | Promise<unknown>): void;
+	export function afterAll(callback: () => unknown | Promise<unknown>): void;
 	export function describe(name: string, callback: () => void): void;
 	export function expect(actual: unknown): Matchers;
 	export function test(

@@ -82,6 +82,7 @@ owns design, debugging, fixes, review; workers do one chore and never recurse.
 │   ├── opencode-fallback.ts — shared usage-limit detection
 │   ├── security-gate.ts   — confirms risky commands, blocks protected paths
 │   ├── todo.ts            — live task list behind /todos
+│   ├── github-pr.ts       — current branch PR discovery, footer ID, agent context
 │   ├── btw.ts             — /btw side question overlay (no tools, no history)
 │   ├── goal.ts            — /goal loop: criteria, roadmap, evidence, gates
 │   ├── collaborate.ts     — cheap workers + balanced Herdr peer teams
@@ -173,6 +174,19 @@ Huge bash/read results are capped at ingest (dump under `~/.pi/agent/tmp/tool-du
 Diffs: inspect first (`summary` with `directories` + optional `--exclude lockfiles` → `--path` files/hunks/slice/search; skill `harness-diff-read`). If inspect ignores `--path` or has no session: path-scoped `git diff`. `diff-reader` last, never the whole tree.
 
 `/thinking-router` sets thinking from the prompt (Shift+Tab locks until `/thinking-router on`).
+
+## GitHub PR awareness
+
+`extensions/github-pr.ts` surfaces the open PR for the current branch. Requires the GitHub CLI `gh` installed and authenticated, and a checkout with a GitHub remote; run `/reload` to load it.
+
+- Footer shows `PR #123` (with a draft suffix for drafts) beside the branch name.
+- The agent receives the detected open PR URL/number, so "check the PR" refers to this branch's PR.
+- Discovery uses read-only `gh pr view` and respects tracking branches/forks.
+- Refresh: local branch state checked every 5s in the UI and before model calls; GitHub queries cached 60s when idle and forced before each new prompt.
+- A closed/merged/no-PR state clears the badge. If auth/network/`gh` is unavailable, the badge is hidden and context is reported as unknown (not confirmed no PR).
+- Detached HEAD has no PR association.
+- `GH_REPO` override and `PI_OFFLINE=1/true/yes` disable discovery to avoid the wrong repo or network calls.
+- Metadata is transient — never stored in the session. No automatic GitHub mutations.
 
 ## Side questions (`/btw`)
 

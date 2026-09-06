@@ -37,7 +37,8 @@ function compactStatuses(
 ): string[] {
 	const compact: string[] = [];
 	for (const [key, text] of statuses) {
-		if (key === "subagents" || key === "pi-lens-lsp") continue;
+		if (key === "subagents" || key === "pi-lens-lsp" || key === "github-pr")
+			continue;
 		if (key === "diffing") {
 			if (!text.includes("no server")) compact.push(theme.fg("accent", "diffing"));
 			continue;
@@ -179,12 +180,15 @@ function renderFooter({
 	const location = branch
 		? `${basename(ctx.cwd)} (${branch})`
 		: basename(ctx.cwd);
+	const statuses = footerData.getExtensionStatuses();
+	const pr = statuses.get("github-pr");
 	const parts = [
 		theme.fg("muted", location),
+		pr ? theme.fg("accent", pr) : undefined,
 		formatGitState(gitStatus, theme),
 		formatContext(ctx, theme),
 		ctx.model?.id ? theme.fg("muted", ctx.model.id) : undefined,
-		...compactStatuses(footerData.getExtensionStatuses(), theme),
+		...compactStatuses(statuses, theme),
 	].filter((part): part is string => part !== undefined);
 	const separator = theme.fg("dim", " · ");
 	return [truncateToWidth(parts.join(separator), width)];
