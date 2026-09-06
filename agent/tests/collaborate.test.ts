@@ -357,9 +357,9 @@ describe("taskReady / takeReady / finishBlockers", () => {
 
 describe("parseBranch / parseEditorAdd / formatReviewCard", () => {
 	test("reads the worktree branch note", () => {
-		expect(
-			parseBranch("Changes saved to branch `pi-agent-abc`."),
-		).toBe("pi-agent-abc");
+		expect(parseBranch("Changes saved to branch `pi-agent-abc`.")).toBe(
+			"pi-agent-abc",
+		);
 		expect(parseBranch("no note", "explicit")).toBe("explicit");
 	});
 
@@ -466,8 +466,7 @@ function makeHarness(options: { sessionId?: string; confirm?: boolean } = {}) {
 	const widgets: Array<{ key: string; lines: string[] | undefined }> = [];
 	const execCalls: Array<{ cmd: string; args: string[] }> = [];
 	const sessionStart: Array<(event: unknown, ctx: unknown) => unknown> = [];
-	const beforeAgentStart: Array<(event: unknown, ctx: unknown) => unknown> =
-		[];
+	const beforeAgentStart: Array<(event: unknown, ctx: unknown) => unknown> = [];
 	let agentSeq = 0;
 	let mergeCode = 0;
 
@@ -491,7 +490,7 @@ function makeHarness(options: { sessionId?: string; confirm?: boolean } = {}) {
 			if (channel === "worker-model:rpc:resolve") {
 				events.emit(`worker-model:rpc:resolve:reply:${data.requestId}`, {
 					success: true,
-					data: "opencode-go/glm-5.3-flash",
+					data: "opencode-go/gpt-5.6-luna",
 				});
 				return;
 			}
@@ -588,10 +587,9 @@ function makeHarness(options: { sessionId?: string; confirm?: boolean } = {}) {
 describe("/collaborate start", () => {
 	test("kicks the lead instead of sitting on an empty ledger", async () => {
 		const harness = makeHarness();
-		await harness.commands.get("collaborate")!.handler(
-			"start implement the second page",
-			harness.ctx,
-		);
+		await harness.commands
+			.get("collaborate")!
+			.handler("start implement the second page", harness.ctx);
 		expect(harness.notices.at(-1)?.message).toBe(
 			"Collaboration open. Lead is planning — nothing is running yet.",
 		);
@@ -606,11 +604,7 @@ describe("/collaborate start", () => {
 		expect(harness.sent).toHaveLength(1);
 		expect(harness.sent[0]?.text).toContain("Goal: implement the second page");
 		expect(harness.sent[0]?.text).toContain("collaborate add");
-		const file = join(
-			TEST_AGENT_DIR,
-			"collaborations",
-			"sess-collab-test.json",
-		);
+		const file = join(TEST_AGENT_DIR, "collaborations", "sess-collab-test.json");
 		expect(existsSync(file)).toBe(true);
 		const saved = JSON.parse(readFileSync(file, "utf8")) as CollaborationState;
 		expect(saved.tasks).toEqual([]);
@@ -636,35 +630,35 @@ describe("/collaborate start", () => {
 
 	test("confirms before overwriting a ledger that has tasks", async () => {
 		const harness = makeHarness({ confirm: false });
-		await harness.commands.get("collaborate")!.handler("start first", harness.ctx);
-		await harness.tools.get("collaborate")!.execute(
-			"t1",
-			{ action: "add", type: "explorer", description: "map it" },
-			undefined,
-			undefined,
-			harness.ctx,
-		);
-		await harness.commands.get("collaborate")!.handler(
-			"start second",
-			harness.ctx,
-		);
-		const status = await harness.tools.get("collaborate")!.execute(
-			"t2",
-			{ action: "status" },
-			undefined,
-			undefined,
-			harness.ctx,
-		);
+		await harness.commands
+			.get("collaborate")!
+			.handler("start first", harness.ctx);
+		await harness.tools
+			.get("collaborate")!
+			.execute(
+				"t1",
+				{ action: "add", type: "explorer", description: "map it" },
+				undefined,
+				undefined,
+				harness.ctx,
+			);
+		await harness.commands
+			.get("collaborate")!
+			.handler("start second", harness.ctx);
+		const status = await harness.tools
+			.get("collaborate")!
+			.execute("t2", { action: "status" }, undefined, undefined, harness.ctx);
 		expect(status.content[0]?.text).toContain("Collaboration: first");
-		expect(harness.sent.filter((item) => item.text.includes("Goal: second"))).toHaveLength(0);
+		expect(
+			harness.sent.filter((item) => item.text.includes("Goal: second")),
+		).toHaveLength(0);
 	});
 
 	test("reload of an open ledger kicks the lead with current next action", async () => {
 		const first = makeHarness({ sessionId: "sess-resume" });
-		await first.commands.get("collaborate")!.handler(
-			"start resume me",
-			first.ctx,
-		);
+		await first.commands
+			.get("collaborate")!
+			.handler("start resume me", first.ctx);
 		const second = makeHarness({ sessionId: "sess-resume" });
 		await second.sessionStart[0]?.({}, second.ctx);
 		expect(second.sent[0]?.text).toContain("Collaboration still open");
@@ -676,10 +670,9 @@ describe("/collaborate start", () => {
 describe("collaborate tool", () => {
 	test("add writes a ready task the lead can run", async () => {
 		const harness = makeHarness();
-		await harness.commands.get("collaborate")!.handler(
-			"start ship the page",
-			harness.ctx,
-		);
+		await harness.commands
+			.get("collaborate")!
+			.handler("start ship the page", harness.ctx);
 		const result = await harness.tools.get("collaborate")!.execute(
 			"t1",
 			{
@@ -693,26 +686,24 @@ describe("collaborate tool", () => {
 			harness.ctx,
 		);
 		expect(result.content[0]?.text).toContain("T1 added · ready");
-		const status = await harness.tools.get("collaborate")!.execute(
-			"t2",
-			{ action: "status" },
-			undefined,
-			undefined,
-			harness.ctx,
-		);
+		const status = await harness.tools
+			.get("collaborate")!
+			.execute("t2", { action: "status" }, undefined, undefined, harness.ctx);
 		expect(status.content[0]?.text).toContain("1 ready");
 		expect(status.content[0]?.text).toContain("T1 explorer");
 	});
 
 	test("add without an open ledger fails", async () => {
 		const harness = makeHarness();
-		const result = await harness.tools.get("collaborate")!.execute(
-			"t1",
-			{ action: "add", type: "worker", description: "x" },
-			undefined,
-			undefined,
-			harness.ctx,
-		);
+		const result = await harness.tools
+			.get("collaborate")!
+			.execute(
+				"t1",
+				{ action: "add", type: "worker", description: "x" },
+				undefined,
+				undefined,
+				harness.ctx,
+			);
 		expect(result.content[0]?.text).toBe(
 			"Error: Start with /collaborate start <goal>",
 		);
@@ -721,13 +712,15 @@ describe("collaborate tool", () => {
 	test("rejects a dumped worker brief", async () => {
 		const harness = makeHarness();
 		await harness.commands.get("collaborate")!.handler("start ship", harness.ctx);
-		const result = await harness.tools.get("collaborate")!.execute(
-			"t1",
-			{ action: "add", type: "worker", description: "implement the page" },
-			undefined,
-			undefined,
-			harness.ctx,
-		);
+		const result = await harness.tools
+			.get("collaborate")!
+			.execute(
+				"t1",
+				{ action: "add", type: "worker", description: "implement the page" },
+				undefined,
+				undefined,
+				harness.ctx,
+			);
 		expect(result.content[0]?.text).toBe("Error: Write tasks need --paths=...");
 	});
 
@@ -755,27 +748,21 @@ describe("collaborate tool", () => {
 			undefined,
 			harness.ctx,
 		);
-		await harness.tools.get("collaborate")!.execute(
-			"t2",
-			{ action: "run" },
-			undefined,
-			undefined,
-			harness.ctx,
-		);
+		await harness.tools
+			.get("collaborate")!
+			.execute("t2", { action: "run" }, undefined, undefined, harness.ctx);
 		harness.events.emit("subagents:completed", {
 			id: "agent-1",
 			result: "mapped\n\nChanges saved to branch `pi-agent-1`.",
 		});
-		const status = await harness.tools.get("collaborate")!.execute(
-			"t3",
-			{ action: "status" },
-			undefined,
-			undefined,
-			harness.ctx,
-		);
+		const status = await harness.tools
+			.get("collaborate")!
+			.execute("t3", { action: "status" }, undefined, undefined, harness.ctx);
 		expect(status.content[0]?.text).toContain("T1 explorer — review");
 		expect(status.content[0]?.text).toContain("T2 worker — waiting");
-		expect(harness.sent.at(-1)?.text).toContain("T1 explorer is ready for review");
+		expect(harness.sent.at(-1)?.text).toContain(
+			"T1 explorer is ready for review",
+		);
 		expect(harness.sent.at(-1)?.text).toContain("pi-agent-1");
 	});
 
@@ -803,25 +790,25 @@ describe("collaborate tool", () => {
 			undefined,
 			harness.ctx,
 		);
-		await harness.tools.get("collaborate")!.execute(
-			"t2",
-			{ action: "run" },
-			undefined,
-			undefined,
-			harness.ctx,
-		);
+		await harness.tools
+			.get("collaborate")!
+			.execute("t2", { action: "run" }, undefined, undefined, harness.ctx);
 		harness.events.emit("subagents:completed", {
 			id: "agent-1",
 			result: "Changes saved to branch `pi-agent-1`.",
 		});
-		const accepted = await harness.tools.get("collaborate")!.execute(
-			"t3",
-			{ action: "accept", id: "T1" },
-			undefined,
-			undefined,
-			harness.ctx,
+		const accepted = await harness.tools
+			.get("collaborate")!
+			.execute(
+				"t3",
+				{ action: "accept", id: "T1" },
+				undefined,
+				undefined,
+				harness.ctx,
+			);
+		expect(accepted.content[0]?.text).toContain(
+			"T1 accepted and merged pi-agent-1",
 		);
-		expect(accepted.content[0]?.text).toContain("T1 accepted and merged pi-agent-1");
 		expect(accepted.content[0]?.text).toContain("T2 worker — ready");
 		expect(harness.execCalls.some((call) => call.args[0] === "merge")).toBe(true);
 	});
@@ -830,59 +817,53 @@ describe("collaborate tool", () => {
 		const harness = makeHarness();
 		harness.setMergeCode(1);
 		await harness.commands.get("collaborate")!.handler("start ship", harness.ctx);
-		await harness.tools.get("collaborate")!.execute(
-			"t1",
-			{ action: "add", type: "explorer", description: "1. Map it." },
-			undefined,
-			undefined,
-			harness.ctx,
-		);
-		await harness.tools.get("collaborate")!.execute(
-			"t2",
-			{ action: "run" },
-			undefined,
-			undefined,
-			harness.ctx,
-		);
+		await harness.tools
+			.get("collaborate")!
+			.execute(
+				"t1",
+				{ action: "add", type: "explorer", description: "1. Map it." },
+				undefined,
+				undefined,
+				harness.ctx,
+			);
+		await harness.tools
+			.get("collaborate")!
+			.execute("t2", { action: "run" }, undefined, undefined, harness.ctx);
 		harness.events.emit("subagents:completed", {
 			id: "agent-1",
 			result: "Changes saved to branch `pi-agent-1`.",
 		});
-		const accepted = await harness.tools.get("collaborate")!.execute(
-			"t3",
-			{ action: "accept", id: "T1" },
-			undefined,
-			undefined,
-			harness.ctx,
-		);
+		const accepted = await harness.tools
+			.get("collaborate")!
+			.execute(
+				"t3",
+				{ action: "accept", id: "T1" },
+				undefined,
+				undefined,
+				harness.ctx,
+			);
 		expect(accepted.content[0]?.text).toContain("Error: merge conflict");
-		const status = await harness.tools.get("collaborate")!.execute(
-			"t4",
-			{ action: "status" },
-			undefined,
-			undefined,
-			harness.ctx,
-		);
+		const status = await harness.tools
+			.get("collaborate")!
+			.execute("t4", { action: "status" }, undefined, undefined, harness.ctx);
 		expect(status.content[0]?.text).toContain("T1 explorer — review");
 	});
 
 	test("finish is rejected while a task still needs accept", async () => {
 		const harness = makeHarness();
 		await harness.commands.get("collaborate")!.handler("start ship", harness.ctx);
-		await harness.tools.get("collaborate")!.execute(
-			"t1",
-			{ action: "add", type: "explorer", description: "1. Map it." },
-			undefined,
-			undefined,
-			harness.ctx,
-		);
-		const finished = await harness.tools.get("collaborate")!.execute(
-			"t2",
-			{ action: "finish" },
-			undefined,
-			undefined,
-			harness.ctx,
-		);
+		await harness.tools
+			.get("collaborate")!
+			.execute(
+				"t1",
+				{ action: "add", type: "explorer", description: "1. Map it." },
+				undefined,
+				undefined,
+				harness.ctx,
+			);
+		const finished = await harness.tools
+			.get("collaborate")!
+			.execute("t2", { action: "finish" }, undefined, undefined, harness.ctx);
 		expect(finished.content[0]?.text).toBe("Error: T1 not done");
 	});
 });

@@ -19,7 +19,6 @@ import {
 	writeFileSync,
 } from "node:fs";
 import { join, resolve } from "node:path";
-import { StringEnum } from "@earendil-works/pi-ai";
 import type {
 	ExtensionAPI,
 	ExtensionContext,
@@ -28,6 +27,18 @@ import type {
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { matchesKey, truncateToWidth } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
+
+function StringEnum<T extends readonly string[]>(
+	values: T,
+	options?: Parameters<typeof Type.Union>[1],
+) {
+	return Type.Union(
+		values.map((value) => Type.Literal(value)) as [schemaType, ...schemaType[]],
+		options,
+	);
+}
+
+type schemaType = ReturnType<typeof Type.Literal>;
 
 const VERSION = 1;
 export const MAX_PARALLEL = 3;
@@ -131,7 +142,9 @@ const CollaborateParams = Type.Object({
 		description:
 			"status; add; run; accept/reject/retry/drop; cancel/steer; assign; peer; pause/resume; finish",
 	}),
-	type: Type.Optional(StringEnum(WORKER_TYPES, { description: "add: worker type" })),
+	type: Type.Optional(
+		StringEnum(WORKER_TYPES, { description: "add: worker type" }),
+	),
 	description: Type.Optional(
 		Type.String({
 			description:
@@ -155,14 +168,17 @@ const CollaborateParams = Type.Object({
 	),
 	id: Type.Optional(
 		Type.String({
-			description: "task id (T1) for run/accept/reject/retry/drop/cancel/steer/assign",
+			description:
+				"task id (T1) for run/accept/reject/retry/drop/cancel/steer/assign",
 		}),
 	),
 	name: Type.Optional(
 		Type.String({ description: "peer: Herdr agent name; assign: peer name" }),
 	),
 	cwd: Type.Optional(
-		Type.String({ description: "peer: working directory relative to the session" }),
+		Type.String({
+			description: "peer: working directory relative to the session",
+		}),
 	),
 	message: Type.Optional(
 		Type.String({ description: "steer: mid-run redirect; reject: why" }),
@@ -302,8 +318,7 @@ export function taskReady(
 ): boolean {
 	if (task.status !== "waiting" && task.status !== "ready") return false;
 	return task.dependsOn.every(
-		(id) =>
-			tasks.find((candidate) => candidate.id === id)?.status === "accepted",
+		(id) => tasks.find((candidate) => candidate.id === id)?.status === "accepted",
 	);
 }
 
@@ -588,10 +603,8 @@ export function addTasksToState(
 		const conflict = findPathConflict(input, imagined);
 		if (conflict) throw new Error(conflict);
 		const waiting =
-			input.dependsOn.length > 0 && !taskReady(
-				{ ...input, id: "pending", status: "waiting" },
-				imagined,
-			);
+			input.dependsOn.length > 0 &&
+			!taskReady({ ...input, id: "pending", status: "waiting" }, imagined);
 		const task: CollaborationTask = {
 			id: `T${imagined.length + 1}`,
 			...input,
@@ -626,8 +639,7 @@ export function finishBlockers(state: CollaborationState): string[] {
 			continue;
 		}
 		if (task.status === "running") blockers.push(`${task.id} still running`);
-		else if (task.status === "review")
-			blockers.push(`${task.id} needs accept`);
+		else if (task.status === "review") blockers.push(`${task.id} needs accept`);
 		else if (task.status === "failed" || task.status === "rejected")
 			blockers.push(`${task.id} is ${task.status} — retry or drop`);
 		else blockers.push(`${task.id} not done`);
@@ -949,7 +961,10 @@ async function assignTask(
 	task.error = undefined;
 }
 
-async function steerTask(task: CollaborationTask, message: string): Promise<void> {
+async function steerTask(
+	task: CollaborationTask,
+	message: string,
+): Promise<void> {
 	if (!message.trim()) throw new Error("steer needs a message");
 	if (task.status !== "running") throw new Error(`${task.id} is not running`);
 	if (task.assignedTo) {
@@ -994,9 +1009,7 @@ class BoardComponent {
 			),
 		);
 		lines.push("");
-		lines.push(
-			truncateToWidth(`  ${th.fg("muted", this.state.goal)}`, width),
-		);
+		lines.push(truncateToWidth(`  ${th.fg("muted", this.state.goal)}`, width));
 		lines.push(
 			truncateToWidth(
 				`  ${th.fg("dim", "next")} ${th.fg("accent", nextAction(this.state))}`,
@@ -1052,19 +1065,47 @@ function completions(
 	const subcommands: Completion[] = [
 		{ value: "start", label: "start", description: "Start a collaboration" },
 		{ value: "status", label: "status", description: "Show the live board" },
-		{ value: "add", label: "add", description: "Add a fully specified worker task" },
+		{
+			value: "add",
+			label: "add",
+			description: "Add a fully specified worker task",
+		},
 		{ value: "run", label: "run", description: "Run ready tasks (cap 3)" },
-		{ value: "accept", label: "accept", description: "Accept a review task and merge" },
+		{
+			value: "accept",
+			label: "accept",
+			description: "Accept a review task and merge",
+		},
 		{ value: "reject", label: "reject", description: "Reject a review task" },
-		{ value: "retry", label: "retry", description: "Retry a failed or rejected task" },
-		{ value: "drop", label: "drop", description: "Drop a task and release its paths" },
+		{
+			value: "retry",
+			label: "retry",
+			description: "Retry a failed or rejected task",
+		},
+		{
+			value: "drop",
+			label: "drop",
+			description: "Drop a task and release its paths",
+		},
 		{ value: "cancel", label: "cancel", description: "Stop a running task" },
 		{ value: "steer", label: "steer", description: "Redirect a running worker" },
-		{ value: "assign", label: "assign", description: "Send a ready task to a Herdr peer" },
-		{ value: "peer", label: "peer", description: "Open a peer in a Herdr team tab" },
+		{
+			value: "assign",
+			label: "assign",
+			description: "Send a ready task to a Herdr peer",
+		},
+		{
+			value: "peer",
+			label: "peer",
+			description: "Open a peer in a Herdr team tab",
+		},
 		{ value: "pause", label: "pause", description: "Pause new task starts" },
 		{ value: "resume", label: "resume", description: "Allow task starts" },
-		{ value: "finish", label: "finish", description: "Close the ledger after accept" },
+		{
+			value: "finish",
+			label: "finish",
+			description: "Close the ledger after accept",
+		},
 	];
 	const parts = prefix.trimStart().split(/\s+/);
 	if (parts.length <= 1) {
@@ -1072,13 +1113,13 @@ function completions(
 		return subcommands.filter((item) => item.value.startsWith(value));
 	}
 	if (parts[0] === "add" && parts.length === 2) {
-		return WORKER_TYPES.filter((type) =>
-			type.startsWith(parts[1] as string),
-		).map((type) => ({
-			value: `add ${type}`,
-			label: type,
-			description: `Add a ${type} task`,
-		}));
+		return WORKER_TYPES.filter((type) => type.startsWith(parts[1] as string)).map(
+			(type) => ({
+				value: `add ${type}`,
+				label: type,
+				description: `Add a ${type} task`,
+			}),
+		);
 	}
 	const idCommands = new Set([
 		"run",
@@ -1156,14 +1197,13 @@ export default function collaborate(pi: ExtensionAPI) {
 		state = loadState(ctx);
 		refreshWidget(ctx);
 		if (state && !state.paused && ctx.isIdle()) {
-			notify(
-				ctx,
-				`Collaboration resumed · ${nextAction(state)}`,
-				"info",
-			);
+			notify(ctx, `Collaboration resumed · ${nextAction(state)}`, "info");
 			send(ctx, kickoffContinue(state));
 		} else if (state && ctx.hasUI) {
-			notify(ctx, `Collaboration ${state.paused ? "paused" : "open"} · ${nextAction(state)}`);
+			notify(
+				ctx,
+				`Collaboration ${state.paused ? "paused" : "open"} · ${nextAction(state)}`,
+			);
 		}
 	});
 
@@ -1192,12 +1232,10 @@ export default function collaborate(pi: ExtensionAPI) {
 		task.error = event.error;
 		task.branch = parseBranch(event.result, event.branch);
 		if (!failed) {
-			const manager = (
-				globalThis as Record<symbol, SubagentManager | undefined>
-			)[MANAGER_KEY];
-			const record = task.agentId
-				? manager?.getRecord?.(task.agentId)
-				: undefined;
+			const manager = (globalThis as Record<symbol, SubagentManager | undefined>)[
+				MANAGER_KEY
+			];
+			const record = task.agentId ? manager?.getRecord?.(task.agentId) : undefined;
 			if (record?.worktreeResult?.branch)
 				task.branch = record.worktreeResult.branch;
 		}
@@ -1272,8 +1310,7 @@ export default function collaborate(pi: ExtensionAPI) {
 	};
 
 	const cancelTask = async (task: CollaborationTask): Promise<string> => {
-		if (task.status !== "running")
-			throw new Error(`${task.id} is not running`);
+		if (task.status !== "running") throw new Error(`${task.id} is not running`);
 		if (task.agentId) {
 			await rpc<void>(pi, "subagents:rpc:stop", { agentId: task.agentId });
 		}
@@ -1313,7 +1350,8 @@ export default function collaborate(pi: ExtensionAPI) {
 			sessionCtx = ctx;
 			try {
 				if (params.action === "status") {
-					if (!state) return toolFail("status", "Start with /collaborate start <goal>");
+					if (!state)
+						return toolFail("status", "Start with /collaborate start <goal>");
 					return toolOk("status", formatState(state));
 				}
 				if (!state)
@@ -1349,9 +1387,7 @@ export default function collaborate(pi: ExtensionAPI) {
 				}
 				if (params.action === "run") {
 					const onlyId =
-						!params.id || params.id === "all"
-							? undefined
-							: params.id.toUpperCase();
+						!params.id || params.id === "all" ? undefined : params.id.toUpperCase();
 					const started = await runReady(pi, ctx, state, onlyId);
 					persist(ctx);
 					return toolOk(
@@ -1375,10 +1411,7 @@ export default function collaborate(pi: ExtensionAPI) {
 					return toolOk("accept", `${message}\n${formatState(state)}`);
 				}
 				if (params.action === "reject") {
-					const message = rejectTask(
-						requireTask(state, params.id),
-						params.message,
-					);
+					const message = rejectTask(requireTask(state, params.id), params.message);
 					persist(ctx);
 					notify(ctx, message, "warning");
 					return toolOk("reject", `${message}\n${formatState(state)}`);
@@ -1501,7 +1534,8 @@ export default function collaborate(pi: ExtensionAPI) {
 						}
 						inputs = parseEditorAdd(edited);
 					} else {
-						if (!tail) throw new Error("Usage: /collaborate add <type> --paths=... -- <brief>");
+						if (!tail)
+							throw new Error("Usage: /collaborate add <type> --paths=... -- <brief>");
 						inputs = [parseAddArgs(tail)];
 					}
 					const created = addTasksToState(state, inputs);

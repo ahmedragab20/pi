@@ -10,7 +10,6 @@
  */
 import * as os from "node:os";
 import * as path from "node:path";
-import type { ImageContent } from "@earendil-works/pi-ai";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import {
 	IMAGE_CHIP,
@@ -23,6 +22,7 @@ import {
 	resetPasteRegistry,
 	toImageContent,
 	type SavedPaste,
+	type ImageContent,
 } from "./paste-images.ts";
 
 const IMAGE_EXT = /\.(png|jpe?g|gif|webp|bmp)$/i;

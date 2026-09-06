@@ -1,6 +1,6 @@
 /**
- * Worker models: OpenCode Go GLM Flash first, then OpenCode Go DeepSeek Flash
- * if GLM is unauthed or out of usage. Never switches the lead.
+ * Worker models: Codex Luna first, then Go Luna if Codex is unavailable.
+ * Never switches the lead.
  *
  * Agent frontmatter cannot express a fallback (a pinned `model:` is locked),
  * so worker files omit `model` and this fills `Agent.model` before spawn.
@@ -35,9 +35,9 @@ type PendingBackground = {
 	model: string;
 };
 
-const FLASH: Pair[] = [
-	["opencode-go", "glm-5.3-flash"],
-	["opencode-go", "deepseek-v4-flash"],
+const WORKER_MODELS: Pair[] = [
+	["openai-codex", "gpt-5.6-luna"],
+	["opencode-go", "gpt-5.6-luna"],
 ];
 const RETRY_TIMEOUT_MS = 8 * 60_000;
 
@@ -210,7 +210,7 @@ export default function workerModel(pi: ExtensionAPI) {
 		if (typeof input.resume === "string" && input.resume.trim()) return;
 		if (typeof input.model === "string" && input.model.trim()) return;
 
-		const picked = await pickModel(ctx, FLASH);
+		const picked = await pickModel(ctx, WORKER_MODELS);
 		if (picked) input.model = picked;
 	});
 
@@ -223,7 +223,7 @@ export default function workerModel(pi: ExtensionAPI) {
 			pi.events.emit(channel, { success: false, error: "No active session" });
 			return;
 		}
-		void pickModel(ctx, FLASH).then(
+		void pickModel(ctx, WORKER_MODELS).then(
 			(model) => pi.events.emit(channel, { success: true, data: model }),
 			(error) =>
 				pi.events.emit(channel, {
@@ -268,7 +268,7 @@ export default function workerModel(pi: ExtensionAPI) {
 
 		const used = typeof input.model === "string" ? input.model : "";
 		markExhaustedFromError(text, used);
-		const picked = await pickModel(ctx, FLASH);
+		const picked = await pickModel(ctx, WORKER_MODELS);
 		if (!picked || picked === used) return;
 
 		retried.add(event.toolCallId);
@@ -329,7 +329,7 @@ export default function workerModel(pi: ExtensionAPI) {
 
 		void (async () => {
 			markExhaustedFromError(text, pending.model);
-			const picked = await pickModel(ctx, FLASH);
+			const picked = await pickModel(ctx, WORKER_MODELS);
 			if (!picked || picked === pending.model) return;
 			retried.add(id);
 			if (ctx.hasUI) {
