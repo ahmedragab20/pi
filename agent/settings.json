@@ -1,5 +1,5 @@
 {
-  "lastChangelogVersion": "0.85.0",
+  "lastChangelogVersion": "0.85.1",
   "theme": "rose-pine",
   "defaultProvider": "openai-codex",
   "defaultModel": "gpt-6-astra",
@@ -33,6 +33,7 @@
   "enabledModels": [
     "openai-codex/gpt-6-astra",
     "openai-codex/gpt-6-astra-1m",
+    "openai-codex/gpt-5.3-codex-spark",
     "openai-codex/gpt-5.6-sol",
     "openai-codex/gpt-5.6-sol-1m",
     "xai/grok-4.6",
