@@ -12,6 +12,8 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { plugin } from "bun";
+import { parseFrontmatter } from "../npm/node_modules/@earendil-works/pi-coding-agent/dist/utils/frontmatter.js";
+import { SettingsManager } from "../npm/node_modules/@earendil-works/pi-coding-agent/dist/core/settings-manager.js";
 
 /** Every test run gets its own agent dir, so goals never touch ~/.pi/agent. */
 export const TEST_AGENT_DIR =
@@ -29,6 +31,8 @@ const Type = {
 		schema("object", { properties }),
 	Optional: (inner: unknown) => schema("optional", { inner }),
 	String: (options?: unknown) => schema("string", { options }),
+	Literal: (value: unknown) => schema("literal", { value }),
+	Union: (items: unknown[], options?: unknown) => schema("union", { items, options }),
 	Number: (options?: unknown) => schema("number", { options }),
 	Boolean: (options?: unknown) => schema("boolean", { options }),
 	Array: (items: unknown, options?: unknown) =>
@@ -68,6 +72,10 @@ plugin({
 		build.module("@earendil-works/pi-coding-agent", () => ({
 			exports: {
 				getAgentDir: () => TEST_AGENT_DIR,
+				parseFrontmatter,
+				SettingsManager,
+				createCodingTools: () => [],
+				createReadOnlyTools: () => [],
 				formatSize: (bytes: number) => `${bytes} B`,
 				CONFIG_DIR_NAME: ".pi",
 			},

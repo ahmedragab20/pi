@@ -74,7 +74,7 @@ owns design, debugging, fixes, review; workers do one chore and never recurse.
 │   ├── 00-paste-chips.ts  — [Image #N] / [Paste #N] chips (no remount)
 │   ├── paste-images.ts    — decode pasted images to vision/
 │   ├── efficiency/        — compress, fold, Flash compact, deferred tools,
-│   │                         memory, thinking-router
+│   │                         memory
 │   ├── context-efficiency.ts — early compact on windows < 500k
 │   ├── cursor-lazy/       — Cursor provider, loaded on demand by /cursor-load
 │   ├── vision-router.ts   — auto vision for pasted images
@@ -163,15 +163,14 @@ the lead merges. Keymaps: [SUBAGENTS.md](SUBAGENTS.md).
 | `/microcompact [on\|off\|status]` | Fold old tool dumps in outgoing context |
 | `/tools` / `/tools reset` | Deferred package extras vs core set |
 | `/memory` / `/memory refresh` | Show memory file + size / print the exact `memory` spawn brief |
-| `/thinking-router [on\|off\|status]` | Auto thinking from the prompt |
 | `/context-efficiency` | Small-window early compact status |
 | `/compact` | Stock compact, summarized by the active lead model |
 
-Huge bash/read results are capped at ingest (dump under `~/.pi/agent/tmp/tool-dumps/`). Core tools stay on; `tool_search` activates the rest. Shift+Tab locks thinking-router until `/thinking-router on`.
+Huge bash/read results are capped at ingest (dump under `~/.pi/agent/tmp/tool-dumps/`). Core tools stay on; `tool_search` activates the rest.
 
 Diffs: inspect first (`summary` with `directories` + optional `--exclude lockfiles` → `--path` files/hunks/slice/search; skill `harness-diff-read`). If inspect ignores `--path` or has no session: path-scoped `git diff`. `diff-reader` last, never the whole tree.
 
-`/thinking-router` sets thinking from the prompt (Shift+Tab locks until `/thinking-router on`).
+Thinking is manual: Shift+Tab or `/thinking` selects the level for the next assistant request. It does not change a request already streaming or an existing worker session. Ctrl+S in `/thinking` saves the startup default.
 
 ## GitHub PR awareness
 
@@ -326,7 +325,7 @@ execution, not V8 compilation.
 | `/tree` `/fork` `/compact` | Session tools |
 | `/goal <task>` | Loop until criteria are evidenced + reviewed |
 | `/agents` | Manage / view / stop / steer running workers |
-| `/microcompact` `/tools` `/memory` `/thinking-router` | Token controls |
+| `/microcompact` `/tools` `/memory` | Token controls |
 | `pi -c` | Continue most recent session |
 | `pi -r` | Browse and resume a session |
 
@@ -371,8 +370,8 @@ are scoped to the pi extension session and cleaned up on shutdown. Memory
 refresh is initialized after resume/tree. Tool dump filenames include a
 content hash and are written with exclusive 0600 permissions. Vision output is
 bounded to 1 MiB with a single 90-second fallback deadline and TERM→KILL on
-actual non-exit. The working indicator latches dispatched-request thinking;
-editor selection affects the next request.
+actual non-exit. The working indicator reads supported provider effort/budget at dispatch;
+unknown payloads display `selected <level>` rather than claiming confirmed effort. Editor selection affects the next request.
 
 The security gate remains preflight guardrails, not an OS sandbox.
 Provider-routing policy and dependency portability are unchanged.

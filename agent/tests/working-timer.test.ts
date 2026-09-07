@@ -83,7 +83,7 @@ describe("working timer", () => {
 			handlers.get("session_start")![0]({}, ctx);
 			now = 1_000;
 			await handlers.get("agent_start")![0]({}, ctx);
-			expect(workingMessages.at(-1)).toBe("Working... 00:00 · low");
+			expect(workingMessages.at(-1)).toBe("Working... 00:00 · selected low");
 
 			await handlers.get("before_provider_request")![0](
 				{ payload: { reasoning: { effort: "low" } } },
@@ -110,6 +110,32 @@ describe("working timer", () => {
 			expect(workingMessages.at(-1)).toBe("Working... 01:05 · high");
 			intervalCb!();
 			expect(workingMessages.at(-1)).toBe("Working... 01:05 · high");
+
+			await handlers.get("before_provider_request")![0](
+				{
+					payload: {
+						thinking: { type: "adaptive" },
+						output_config: { effort: "medium" },
+					},
+				},
+				ctx,
+			);
+			expect(workingMessages.at(-1)).toBe("Working... 01:05 · medium");
+
+			await handlers.get("before_provider_request")![0](
+				{ payload: { config: { thinkingConfig: { thinkingLevel: "LOW" } } } },
+				ctx,
+			);
+			expect(workingMessages.at(-1)).toBe("Working... 01:05 · low");
+
+			await handlers.get("before_provider_request")![0](
+				{ payload: { thinking: { type: "enabled", budget_tokens: 4096 } } },
+				ctx,
+			);
+			expect(workingMessages.at(-1)).toBe("Working... 01:05 · budget 4096");
+
+			await handlers.get("before_provider_request")![0]({ payload: { unknown: true } }, ctx);
+			expect(workingMessages.at(-1)).toBe("Working... 01:05 · selected high");
 
 			// reasoning_effort payload (flat key) overrides the editor's high.
 			await handlers.get("before_provider_request")![0](

@@ -35,6 +35,8 @@ unauthed or out of usage. A spawn that fails on a usage limit is retried once
 on the next model in the chain and the tool result is replaced, so the lead
 never sees the quota error. The lead model is never switched.
 
+Normal harness `Agent` calls use agent frontmatter > explicit thinking > per-model default > global default (pi fallback medium). They do not inherit the lead's live thinking; existing or resumed worker sessions keep their level. Harness `Agent` and collaboration launch paths validate levels and snapshot the selected policy for quota retries; a fallback model may clamp it. Third-party direct subagent RPC/UI paths are package-owned and not covered by this local guard. Agent frontmatter overrides rather than merely defaults explicit thinking.
+
 ## Config (`subagents.json`)
 
 | Key | Value | Why |

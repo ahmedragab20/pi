@@ -1,7 +1,7 @@
 /**
  * Token efficiency + modern harness controls.
  *
- * /microcompact  /tools  /memory  /thinking-router
+ * /microcompact  /tools  /memory
  */
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { registerAutoCompress } from "./auto-compress.ts";
@@ -10,7 +10,6 @@ import { registerDeferredTools } from "./deferred-tools.ts";
 import { pruneOldDumps } from "./dumps.ts";
 import { registerMicrocompact } from "./microcompact.ts";
 import { registerProjectMemory } from "./project-memory.ts";
-import { registerThinkingRouter } from "./thinking-router.ts";
 
 export default function efficiency(pi: ExtensionAPI) {
 	registerCompactionCoordinator(pi);
@@ -18,7 +17,6 @@ export default function efficiency(pi: ExtensionAPI) {
 	registerMicrocompact(pi);
 	registerDeferredTools(pi);
 	registerProjectMemory(pi);
-	registerThinkingRouter(pi);
 
 	pi.on("session_start", () => {
 		pruneOldDumps();

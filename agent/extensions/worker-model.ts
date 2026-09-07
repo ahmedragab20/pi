@@ -20,6 +20,10 @@ import {
 	markModelExhausted,
 	resetProviderExhaustion,
 } from "./opencode-fallback.ts";
+import {
+	resolveAgentThinking,
+	validateThinkingLevel,
+} from "./process/agent-thinking.ts";
 
 type Pair = readonly [string, string];
 type AgentInput = Record<string, unknown>;
@@ -131,7 +135,7 @@ function retryOptions(
 		maxTurns: input.max_turns,
 		isolated: input.isolated,
 		inheritContext: input.inherit_context,
-		thinkingLevel: input.thinking,
+		thinkingLevel: validateThinkingLevel(input.thinking, "worker retry thinking"),
 		isBackground: true,
 		isolation: input.isolation,
 	};
@@ -179,12 +183,14 @@ function terminalFailure(event: AgentEvent): boolean {
 
 export default function workerModel(pi: ExtensionAPI) {
 	const retried = new Set<string>();
+	const preparedInputs = new Map<string, AgentInput>();
 	const pendingBackground = new Map<string, PendingBackground>();
 	let sessionCtx: ExtensionContext | undefined;
 
 	const reset = () => {
 		resetProviderExhaustion();
 		retried.clear();
+		preparedInputs.clear();
 		pendingBackground.clear();
 	};
 
@@ -195,6 +201,7 @@ export default function workerModel(pi: ExtensionAPI) {
 
 	pi.on("session_shutdown", () => {
 		sessionCtx = undefined;
+		preparedInputs.clear();
 		pendingBackground.clear();
 	});
 
@@ -208,10 +215,28 @@ export default function workerModel(pi: ExtensionAPI) {
 		sessionCtx = ctx;
 		const input = event.input as AgentInput;
 		if (typeof input.resume === "string" && input.resume.trim()) return;
-		if (typeof input.model === "string" && input.model.trim()) return;
-
-		const picked = await pickModel(ctx, WORKER_MODELS);
-		if (picked) input.model = picked;
+		try {
+			validateThinkingLevel(input.thinking, "Agent.thinking");
+			// Keep the original thinking parameter intact so pi-subagents can
+			// disclose frontmatter overrides; retries use the policy snapshot.
+			const type = String(input.subagent_type ?? "");
+			if (!(typeof input.model === "string" && input.model.trim())) {
+				const picked = await pickModel(ctx, WORKER_MODELS);
+				if (picked) input.model = picked;
+			}
+			const thinking = resolveAgentThinking(
+				ctx,
+				type,
+				input.thinking,
+				input.model,
+			);
+			preparedInputs.set(event.toolCallId, { ...input, thinking });
+		} catch (error) {
+			return {
+				block: true,
+				reason: error instanceof Error ? error.message : String(error),
+			};
+		}
 	});
 
 	const offResolve = pi.events.on("worker-model:rpc:resolve", (raw) => {
@@ -249,7 +274,30 @@ export default function workerModel(pi: ExtensionAPI) {
 	pi.on("tool_result", async (event, ctx) => {
 		if (event.toolName !== "Agent") return;
 		sessionCtx = ctx;
-		const input = event.input as AgentInput;
+		const original = event.input as AgentInput;
+		const prepared = preparedInputs.get(event.toolCallId);
+		preparedInputs.delete(event.toolCallId);
+		// Normal calls were snapshotted at tool_call. Resolve defensively for
+		// callers that deliver results without going through that hook.
+		let input = prepared ?? original;
+		if (
+			!prepared &&
+			!(typeof original.resume === "string" && original.resume.trim())
+		) {
+			try {
+				input = {
+					...original,
+					thinking: resolveAgentThinking(
+						ctx,
+						String(original.subagent_type ?? ""),
+						original.thinking,
+						original.model,
+					),
+				};
+			} catch {
+				return; // Invalid configuration must never trigger an unguarded retry.
+			}
+		}
 		const details = event.details as
 			| { status?: string; agentId?: string }
 			| undefined;

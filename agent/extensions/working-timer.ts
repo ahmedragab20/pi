@@ -33,16 +33,36 @@ export function formatThinking(theme: Theme, level: string): string {
 }
 
 function requestThinkingLevel(payload: unknown, fallback: string): string {
-	if (!payload || typeof payload !== "object") return fallback;
+	const selected = `selected ${fallback}`;
+	if (!payload || typeof payload !== "object") return selected;
 	const request = payload as {
 		reasoning?: { effort?: unknown };
 		reasoning_effort?: unknown;
-		thinking?: { type?: unknown };
+		output_config?: { effort?: unknown };
+		thinking?: { type?: unknown; budget_tokens?: unknown };
+		config?: {
+			thinkingConfig?: { thinkingLevel?: unknown; thinkingBudget?: unknown };
+		};
 	};
 	if (request.thinking?.type === "disabled") return "off";
-	const effort = request.reasoning?.effort ?? request.reasoning_effort;
-	if (effort === "none") return "off";
-	return typeof effort === "string" && effort in THINKING_FG ? effort : fallback;
+	const google = request.config?.thinkingConfig;
+	const effort =
+		request.reasoning?.effort ??
+		request.reasoning_effort ??
+		request.output_config?.effort ??
+		google?.thinkingLevel;
+	if (typeof effort === "string") {
+		const level = effort.toLowerCase();
+		if (level === "none") return "off";
+		if (Object.hasOwn(THINKING_FG, level)) return level;
+	}
+	const budget = request.thinking?.budget_tokens ?? google?.thinkingBudget;
+	if (typeof budget === "number" && Number.isFinite(budget)) {
+		if (budget === 0) return "off";
+		if (budget === -1) return "adaptive";
+		if (budget > 0) return `budget ${budget}`;
+	}
+	return selected;
 }
 
 export default function workingTimer(pi: ExtensionAPI): void {
@@ -78,7 +98,7 @@ export default function workingTimer(pi: ExtensionAPI): void {
 		currentCtx = ctx;
 		if (startedAt === undefined) {
 			startedAt = Date.now();
-			requestThinking = ctx.thinkingLevel ?? pi.getThinkingLevel();
+			requestThinking = `selected ${ctx.thinkingLevel ?? pi.getThinkingLevel()}`;
 		}
 		ctx.ui.setStatus(STATUS_KEY, undefined);
 		refresh();

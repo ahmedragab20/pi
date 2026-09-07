@@ -10,7 +10,10 @@
  * preserving the runner options of the original Agent call.
  */
 
-import { beforeEach, describe, expect, test } from "bun:test";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { join } from "node:path";
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import workerModelExtension from "../extensions/worker-model.ts";
 import {
 	isProviderExhausted,
@@ -22,6 +25,13 @@ import {
 
 const OPENAI_LUNA = "openai-codex/gpt-5.6-luna";
 const GO_LUNA = "opencode-go/gpt-5.6-luna";
+const FIXTURE_ROOT = fileURLToPath(new URL("../tmp", import.meta.url));
+mkdirSync(FIXTURE_ROOT, { recursive: true });
+const fixtureDirs: string[] = [];
+
+afterEach(() => {
+	for (const cwd of fixtureDirs.splice(0)) rmSync(cwd, { recursive: true });
+});
 
 type Handler = (event: unknown, ctx: unknown) => unknown;
 type EventBusHandler = (payload: unknown) => void;
@@ -34,6 +44,13 @@ interface SpawnCall {
 }
 
 function makeHarness() {
+	const cwd = mkdtempSync(join(FIXTURE_ROOT, "worker-model-"));
+	fixtureDirs.push(cwd);
+	mkdirSync(join(cwd, ".pi", "agents"), { recursive: true });
+	writeFileSync(
+		join(cwd, ".pi", "agents", "tests.md"),
+		"---\nname: tests\nthinking: medium\n---\nTests worker\n",
+	);
 	const handlers = new Map<string, Handler[]>();
 	const busHandlers = new Map<string, EventBusHandler[]>();
 	const spawns: SpawnCall[] = [];
@@ -100,7 +117,7 @@ function makeHarness() {
 
 	const ctx = {
 		hasUI: true,
-		cwd: "/tmp/worker-model-test",
+		cwd,
 		ui: {
 			notify: (message: string) => notices.push(message),
 		},
@@ -111,6 +128,10 @@ function makeHarness() {
 					? { provider, id }
 					: undefined,
 			getApiKeyAndHeaders: async () => ({ ok: true, apiKey: "test-key" }),
+			getAll: () => [
+				{ provider: "openai-codex", id: "gpt-5.6-luna" },
+				{ provider: "opencode-go", id: "gpt-5.6-luna" },
+			],
 		},
 	};
 
@@ -124,7 +145,7 @@ function makeHarness() {
 		return results;
 	};
 
-	return { fire, spawns, notices, bus };
+	return { fire, spawns, notices, bus, ctx };
 }
 
 describe("worker model exhaustion scopes", () => {
@@ -203,7 +224,7 @@ describe("foreground Agent usage-limit fallback", () => {
 		// Runner options of the original Agent call survive the retry.
 		expect(options.description).toBe("run tests");
 		expect(options.name).toBe("tests-worker");
-		expect(options.thinkingLevel).toBe("low");
+		expect(options.thinkingLevel).toBe("medium");
 		expect(options.maxTurns).toBe(12);
 		expect(options.isolated).toBe(true);
 		expect(options.inheritContext).toBe(false);
@@ -218,6 +239,63 @@ describe("foreground Agent usage-limit fallback", () => {
 			.join("\n");
 		expect(text).toContain("fallback output from deepseek");
 		expect(text).not.toContain("GoUsageLimitError");
+	});
+
+	test("snapshots worker frontmatter thinking before a quota retry", async () => {
+		const cwd = mkdtempSync(join(FIXTURE_ROOT, "pi-worker-thinking-"));
+		try {
+			mkdirSync(join(cwd, ".pi", "agents"), { recursive: true });
+			writeFileSync(
+				join(cwd, ".pi", "agents", "audit-test.md"),
+				"---\nname: audit-test\nthinking: medium\n---\nAudit worker\n",
+			);
+			const h = makeHarness();
+			h.ctx.cwd = cwd;
+			const input = {
+				subagent_type: "audit-test",
+				prompt: "audit the change",
+				description: "audit",
+				thinking: "high",
+				model: OPENAI_LUNA,
+			};
+			await h.fire("tool_call", {
+				toolName: "Agent",
+				toolCallId: "audit-quota",
+				input,
+			});
+			writeFileSync(
+				join(cwd, ".pi", "agents", "audit-test.md"),
+				"---\nname: audit-test\nthinking: low\n---\nAudit worker\n",
+			);
+			await h.fire("tool_result", {
+				toolCallId: "audit-quota",
+				toolName: "Agent",
+				isError: true,
+				input,
+				content: [{ type: "text", text: "GoUsageLimitError: quota exceeded" }],
+			});
+			expect(h.spawns).toHaveLength(1);
+			const retryThinkingSnapshot = h.spawns[0]?.options.thinkingLevel;
+			expect(retryThinkingSnapshot).toBe("medium");
+		} finally {
+			rmSync(cwd, { recursive: true });
+		}
+	});
+
+	test("blocks an invalid worker thinking level without spawning", async () => {
+		const h = makeHarness();
+		const [result] = await h.fire("tool_call", {
+			toolName: "Agent",
+			input: {
+				subagent_type: "audit-test",
+				prompt: "audit",
+				thinking: "hihg",
+			},
+		});
+		const blocked = result as { block?: boolean; reason?: string };
+		expect(blocked?.block).toBe(true);
+		expect(blocked?.reason).toContain("invalid thinking level");
+		expect(h.spawns).toHaveLength(0);
 	});
 
 	test("retries a detached usage-limit failure on the next model", async () => {

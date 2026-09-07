@@ -27,18 +27,19 @@ import type {
 import { getAgentDir } from "@earendil-works/pi-coding-agent";
 import { matchesKey, truncateToWidth } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
+import { resolveAgentThinking } from "./process/agent-thinking.ts";
 
-function StringEnum<T extends readonly string[]>(
+function StringEnum<const T extends readonly [string, ...string[]]>(
 	values: T,
 	options?: Parameters<typeof Type.Union>[1],
 ) {
 	return Type.Union(
-		values.map((value) => Type.Literal(value)) as [schemaType, ...schemaType[]],
+		values.map((value) => Type.Literal(value)) as {
+			-readonly [K in keyof T]: Type.TLiteral<T[K]>;
+		},
 		options,
 	);
 }
-
-type schemaType = ReturnType<typeof Type.Literal>;
 
 const VERSION = 1;
 export const MAX_PARALLEL = 3;
@@ -737,6 +738,12 @@ async function spawnTask(
 ): Promise<void> {
 	if (!taskReady(task, state.tasks)) return;
 	const model = await resolveWorkerModel(pi);
+	const thinking = resolveAgentThinking(
+		{ ...ctx, cwd: state.cwd },
+		task.type,
+		undefined,
+		model,
+	);
 	const spawned = await rpc<{ id: string }>(pi, "subagents:rpc:spawn", {
 		type: task.type,
 		prompt: workerBrief(state, task),
@@ -744,6 +751,7 @@ async function spawnTask(
 			description: `${state.id} ${task.id}`,
 			name: `${state.id}-${task.id.toLowerCase()}`,
 			model,
+			thinkingLevel: thinking,
 			isBackground: true,
 			isolated: true,
 			inheritContext: false,
@@ -765,6 +773,7 @@ async function spawnTask(
 			description: `${state.id} ${task.id}`,
 			name: `${state.id}-${task.id.toLowerCase()}`,
 			model,
+			thinking,
 			isolated: true,
 			inherit_context: false,
 			isolation: task.paths.length > 0 ? "worktree" : undefined,
@@ -1359,7 +1368,7 @@ export default function collaborate(pi: ExtensionAPI) {
 				if (params.action === "add") {
 					const inputs: AddTaskInput[] = params.tasks?.length
 						? params.tasks.map((item) => ({
-								type: item.type,
+								type: item.type as WorkerType,
 								description: item.description,
 								paths: item.paths ?? [],
 								dependsOn: item.dependsOn ?? [],

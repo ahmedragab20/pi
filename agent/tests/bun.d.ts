@@ -9,6 +9,7 @@ declare module "bun:test" {
 		toEqual(expected: unknown): void;
 		toHaveLength(expected: number): void;
 		toMatchObject(expected: unknown): void;
+		toThrow(expected?: string | RegExp | Error): void;
 	}
 
 	export function beforeEach(callback: () => unknown | Promise<unknown>): void;

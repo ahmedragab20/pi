@@ -548,6 +548,12 @@ function makeHarness(options: { sessionId?: string; confirm?: boolean } = {}) {
 		hasUI: true,
 		mode: "print",
 		cwd: "/tmp/proj",
+		modelRegistry: {
+			find: (provider: string, id: string) => ({ provider, id }),
+			getAll: () => [
+				{ provider: "opencode-go", id: "gpt-5.6-luna", name: "Luna" },
+			],
+		},
 		isIdle: () => true,
 		sessionManager: {
 			getSessionId: () => options.sessionId ?? "sess-collab-test",
