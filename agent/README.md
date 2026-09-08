@@ -3,7 +3,7 @@
 Global config for [pi](https://pi.dev) — the pi-native port of the opencode AI
 Engineering System (subagents + vision routing) merged with the Cursor
 leader/worker and diffing-first workflow. Built for a nerd neovim user: vim
-keybindings, nvim external editor, cheap Flash workers, human-in-the-loop
+keybindings, nvim external editor, cheap Luna workers, human-in-the-loop
 review everywhere.
 
 **pi is the active harness.** Default lead: `openai-codex/gpt-6-astra` @ low.
@@ -26,13 +26,14 @@ You → pi (the lead, any model via /model or Ctrl+P)
 ```
 
 The lead owns every request end to end. It reasons, implements substantively,
-and delegates only mechanical chores to cheap Flash workers, which run in
-isolated sessions with their own context windows. Flash workers use OpenCode
-Go GLM-5.3 Flash, then OpenCode Go DeepSeek V4 Flash. A multimodal lead
-(`openai-codex/gpt-6-astra`, `openai-codex/gpt-6-astra-1m`,
+and delegates only mechanical chores to cheap Luna workers, which run in
+isolated sessions with their own context windows. Luna workers use
+`gpt-5.6-luna` on the Codex provider, then the same model on the Go bundle.
+A multimodal lead (`openai-codex/gpt-6-astra`, `openai-codex/gpt-6-astra-1m`,
 `openai-codex/gpt-5.6-sol`, `openai-codex/gpt-5.6-sol-1m`, or `xai/grok-4.6`)
 sees pasted images natively and nothing is routed.
-A text-only lead (every `cursor/*` model) triggers `extensions/vision-router.ts`,
+A text-only lead — any model whose `input` lacks `image`, today every `cursor/*`
+model plus `openai-codex/gpt-5.3-codex-spark` — triggers `extensions/vision-router.ts`,
 which forks a headless `pi -p` child down its own model chain and injects a
 `[VISION DESCRIPTION]` block before the lead sees the turn. There is no vision
 subagent. The lead model is never switched.
@@ -59,6 +60,7 @@ workers do one chore and never recurse.
 ├── AGENTS.md              — always-on card (chore test, phase table,
 │                             auto-spawn triggers, worker brief spec,
 │                             worker-review gate, images, diffing, herdr)
+├── APPEND_SYSTEM.md       — hard security rules appended to every system prompt
 ├── SUBAGENTS.md           — Agent spawn + FleetView / viewer keymaps
 ├── subagents.json         — disableDefaultAgents, fallbackSubagent none,
 │                             workflowsEnabled false, maxSubagentDepth 1
@@ -69,27 +71,51 @@ workers do one chore and never recurse.
 ├── extensions/
 │   ├── 00-paste-chips.ts  — [Image #N] / [Paste #N] chips (no remount)
 │   ├── paste-images.ts    — decode pasted images to vision/
-│   ├── efficiency/        — compress, fold, Flash compact, deferred tools,
-│   │                         memory
+│   ├── efficiency/        — compress, fold, compaction coordinator,
+│   │                         deferred tools, memory
 │   ├── context-efficiency.ts — early compact on windows < 500k
 │   ├── cursor-lazy/       — Cursor provider, loaded on demand by /cursor-load
 │   ├── vision-router.ts   — auto vision for pasted images
-│   ├── worker-model.ts    — worker model chain (OpenCode Go GLM Flash → DeepSeek V4 Flash)
+│   ├── worker-model.ts    — worker model chain (Codex Luna → Go bundle Luna)
+│   ├── process/           — shared helpers: agent thinking levels, child spawn
 │   ├── opencode-fallback.ts — shared usage-limit detection
 │   ├── security-gate.ts   — confirms risky commands, blocks protected paths
+│   ├── security/          — canonical path resolution behind security-gate
+│   ├── browser/           — agent_browser (agent-browser CLI) + Playwright
+│   │                         fallback; screenshots return inline images
 │   ├── todo.ts            — live task list behind /todos
 │   ├── github-pr.ts       — current branch PR discovery, footer ID, agent context
 │   ├── btw.ts             — /btw side question overlay (no tools, no history)
+│   ├── visualise.ts       — /visualise architecture/topic flow diagrams
+│   ├── fast.ts            — /fast toggles OpenAI priority processing
+│   ├── compact-footer.ts  — footer context-usage percent + chrome
+│   ├── working-timer.ts   — status bar elapsed time + thinking level
+│   ├── herdr-agent-state.ts — herdr-managed state reporting (do not hand-edit)
+│   ├── diffing            — symlink to the diffing product's pi extension
 │   ├── astra-1m-alias.ts  — openai-codex/gpt-6-astra-1m → gpt-6-astra
 │   ├── sol-1m-alias.ts    — openai-codex/gpt-5.6-sol-1m → gpt-5.6-sol
 │   └── pi-tool-repair.json — grammar recovery for kimi/glm/qwen/minimax
-├── npm/                   — pi packages (pi-subagents, vim, …)
+├── npm/                   — pi packages (subagents, vim, lens, intercom,
+│                             tool-repair, ask-user-question)
 ├── themes/rose-pine.json  — card chrome + high-contrast TUI syntax
 ├── agents/                — 10 workers
-├── prompts/               — /diffing /plan /review /finish /commit /implement /explore /verify /debug /delegate /claude-review
+├── prompts/               — /diffing /plan /review /finish /commit /commit-push
+│                             /implement /explore /verify /debug /delegate /claude-review
+├── tests/                 — bun tests for extensions and gates
+├── tsconfig.json          — strict typecheck over extensions/ and tests/
+├── models-store.json      — cached provider model catalogs
+├── cursor-sdk*.json       — cached Cursor catalog, context windows, fast defaults
+├── trust.json             — per-directory project trust decisions
+├── visualisations/        — /visualise output (tracked)
 ├── tmp/                   — gitignored: tool-dumps
 ├── memory/                — gitignored: global MEMORY.md slugs
-├── tests/                 — bun tests for extensions and gates
+├── browser-artifacts/     — gitignored: browser screenshots and PDFs
+├── collaborations/        — gitignored: intercom collaboration state
+├── intercom/              — gitignored: pending asks + extension state
+├── goals/                 — gitignored: leftover goal state, extension removed
+├── sessions/              — gitignored: session JSONL
+├── sessions-archive/      — gitignored: rolled-off sessions
+├── auth.json              — gitignored: provider credentials (never commit)
 └── vision/                — decoded pasted images (pruned after 7 days)
 ```
 
@@ -102,13 +128,14 @@ workers do one chore and never recurse.
 | ------- | ---------- | ------ |
 | `openai-codex/gpt-6-astra` | openai-codex | Default lead |
 | `openai-codex/gpt-6-astra-1m` | openai-codex | Lead — 1M alias |
+| `openai-codex/gpt-5.3-codex-spark` | openai-codex | Lead — text-only |
 | `openai-codex/gpt-5.6-sol` | openai-codex | Lead — 272K window |
 | `openai-codex/gpt-5.6-sol-1m` | openai-codex | Lead — 1.05M context |
 | `xai/grok-4.6` | xai | Lead — 500K context |
 | `opencode-go/deepseek-v4-pro` | Go bundle | Lead |
 | `opencode-go/deepseek-v4-flash` | Go bundle | Optional lead |
 | `opencode-go/glm-5.3` | Go bundle | Lead |
-| `opencode-go/glm-5.3-flash` | Go bundle | Worker Flash |
+| `opencode-go/glm-5.3-flash` | Go bundle | Optional lead |
 
 Cursor models are deliberately out of the Ctrl+P cycle. The Cursor provider is no longer registered at startup, so `enabledModels` cannot resolve `cursor/*` entries there and listing them only produced boot warnings. Run `/cursor-load` once to register the provider, then pick Cursor models with `/model`.
 
@@ -127,19 +154,19 @@ long-context pricing above 272K input).
 
 | Agent | Model | Tools | Role |
 | ------- | ------- | ------ | ------ |
-| `worker` | flash | full | Mechanical impl, CRUD, fixtures, refactors |
-| `tests` | flash | full | Write/run tests, report failing assertion |
-| `lint` | flash | full | Format, lint, imports, style |
-| `docs` | flash | full | READMEs, docs, comments |
-| `git` | flash | read, bash | Commit msgs, PR summaries (never commits) |
-| `memory` | flash | full | Repository memory |
-| `explorer` | flash | read, bash, grep, find, ls | Research/mapping (read-only) |
-| `terminal-reader` | flash | none | Compress terminal output |
-| `log-reader` | flash | none | Compress logs |
-| `diff-reader` | flash | none | Compress a **path-scoped** dump (inspect first) |
+| `worker` | luna | full | Mechanical impl, CRUD, fixtures, refactors |
+| `tests` | luna | full | Write/run tests, report failing assertion |
+| `lint` | luna | full | Format, lint, imports, style |
+| `docs` | luna | full | READMEs, docs, comments |
+| `git` | luna | read, bash | Commit msgs, PR summaries (never commits) |
+| `memory` | luna | full | Repository memory |
+| `explorer` | luna | read, bash, grep, find, ls | Research/mapping (read-only) |
+| `terminal-reader` | luna | none | Compress terminal output |
+| `log-reader` | luna | none | Compress logs |
+| `diff-reader` | luna | none | Compress a **path-scoped** dump (inspect first) |
 
-Workers are **depth 1** — they never spawn workers. Flash workers use
-`opencode-go/glm-5.3-flash`, falling back to `opencode-go/deepseek-v4-flash`
+Workers are **depth 1** — they never spawn workers. Luna workers use
+`openai-codex/gpt-5.6-luna`, falling back to `opencode-go/gpt-5.6-luna`
 when the first option is unauthed **or out of usage**. Each agent pins its own `thinking`
 and `max_turns` in frontmatter. The lead is never switched
 (`extensions/worker-model.ts`). Spawn with `Agent({ subagent_type, prompt, description })`.
@@ -256,7 +283,7 @@ execution, not V8 compilation.
 | `Ctrl+G` | Open external editor (nvim) |
 | `@file` | Reference a file in the prompt |
 | `@worker …` | Message / resume / start a subagent (empty prompt) |
-| `↓` / `←` (empty prompt) | Jump into FleetView while workers run |
+| `↓` / `←` (empty prompt) | Jump into FleetView — needs `fleetView: true`, currently off |
 | `!cmd` / `!!cmd` | Run shell, send output to the model / hidden |
 | `Alt+Enter` | Queue follow-up message |
 | `Ctrl+V` | Paste image → auto vision routing |
@@ -264,6 +291,8 @@ execution, not V8 compilation.
 | `/tree` `/fork` `/compact` | Session tools |
 | `/agents` | Manage / view / stop / steer running workers |
 | `/microcompact` `/tools` `/memory` | Token controls |
+| `/fast` | Toggle OpenAI priority processing (on\|off\|status) |
+| `/visualise [topic]` | Architecture / topic / thinking flow diagram |
 | `pi -c` | Continue most recent session |
 | `pi -r` | Browse and resume a session |
 

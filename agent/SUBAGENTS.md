@@ -30,7 +30,7 @@ only — the worker keeps running.
 
 **Do not pass `model` or `thinking`.** Each agent file pins its own
 `thinking` and `max_turns`, and `extensions/worker-model.ts` fills the model:
-`opencode-go/glm-5.3-flash` → `opencode-go/deepseek-v4-flash`, skipping any provider that is
+`openai-codex/gpt-5.6-luna` → `opencode-go/gpt-5.6-luna`, skipping any provider that is
 unauthed or out of usage. A spawn that fails on a usage limit is retried once
 on the next model in the chain and the tool result is replaced, so the lead
 never sees the quota error. The lead model is never switched.
@@ -45,6 +45,8 @@ Normal harness `Agent` calls use agent frontmatter > explicit thinking > per-mod
 | `fallbackSubagent` | `"none"` | An unknown `subagent_type` is refused, not silently rerouted |
 | `workflowsEnabled` | `false` | `SubagentWorkflow` costs ~5k tokens of system prompt every turn. Fan out with parallel `Agent` calls instead |
 | `maxSubagentDepth` | `1` | Depth 1 enforced by the runtime, not by prose. Workers cannot spawn workers |
+| `widgetMode` | `"off"` | No persistent above-editor agent widget (package default is `background`) |
+| `fleetView` | `false` | The below-editor agent list is **off** (package default is `true`) — turn it on to use the keymap below |
 
 Leave `scopeModels` off. It validates spawn models against `enabledModels`,
 and `worker-model.ts` supplies chain models that are not all in that list —
