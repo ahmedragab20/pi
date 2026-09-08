@@ -5,9 +5,9 @@ import type {
 import { Type } from "typebox";
 import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { chmod, mkdir } from "node:fs/promises";
-import { homedir } from "node:os";
-import { join } from "node:path";
+import { chmod, mkdir, readdir, readFile, stat } from "node:fs/promises";
+import { homedir, platform } from "node:os";
+import { extname, join } from "node:path";
 import { promisify } from "node:util";
 import { StringDecoder } from "node:string_decoder";
 import {
@@ -29,6 +29,19 @@ const AGENT_BROWSER_BIN = join(
   "agent-browser",
 );
 const SCREENSHOT_DIR = join(homedir(), ".pi", "agent", "browser-artifacts");
+const MAX_INLINE_IMAGE_BYTES = 8 * 1024 * 1024;
+const PLAYWRIGHT_CACHE_DIR =
+  process.env.PLAYWRIGHT_BROWSERS_PATH ||
+  (platform() === "darwin"
+    ? join(homedir(), "Library", "Caches", "ms-playwright")
+    : join(homedir(), ".cache", "ms-playwright"));
+
+const IMAGE_MIME_BY_EXT: Record<string, string> = {
+  ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".webp": "image/webp",
+};
 
 const agentBrowserActions = [
   "open",
@@ -59,6 +72,71 @@ const agentBrowserActions = [
   "tabs",
   "close",
 ] as const;
+
+/**
+ * A screenshot returned as a bare path is invisible to the model, so attach the
+ * pixels alongside it. The session normalizes and resizes tool-result images
+ * before they enter history (`images.autoResize`, on by default), so the only
+ * guard needed here is a cap on what we read and base64 into memory. Any
+ * failure degrades to the text path rather than failing the action.
+ */
+async function inlineScreenshot(
+  path: string,
+): Promise<{ type: "image"; data: string; mimeType: string } | undefined> {
+  const mimeType = IMAGE_MIME_BY_EXT[extname(path).toLowerCase()];
+  if (!mimeType) return undefined;
+  try {
+    const { size } = await stat(path);
+    if (size > MAX_INLINE_IMAGE_BYTES) return undefined;
+    const data = await readFile(path);
+    return { type: "image", data: data.toString("base64"), mimeType };
+  } catch {
+    return undefined;
+  }
+}
+
+async function pathExists(path: string): Promise<boolean> {
+  try {
+    await stat(path);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Playwright refuses to launch unless its own pinned revision is installed, and
+ * that install can fail on machines where extracting the browser bundle stalls.
+ * Any complete headless shell already in the cache drives the same API, so fall
+ * back to the newest one rather than leaving the tool permanently unusable.
+ * `INSTALLATION_COMPLETE` is what separates a finished install from a partial
+ * extraction, so never hand back a build that lacks it.
+ */
+async function findCachedHeadlessShell(): Promise<string | undefined> {
+  try {
+    const versions = (await readdir(PLAYWRIGHT_CACHE_DIR))
+      .filter((name) => name.startsWith("chromium_headless_shell-"))
+      .sort(
+        (a, b) =>
+          Number(b.slice(b.lastIndexOf("-") + 1)) -
+          Number(a.slice(a.lastIndexOf("-") + 1)),
+      );
+    for (const version of versions) {
+      const versionDir = join(PLAYWRIGHT_CACHE_DIR, version);
+      if (!(await pathExists(join(versionDir, "INSTALLATION_COMPLETE"))))
+        continue;
+      const buildDir = (await readdir(versionDir)).find((name) =>
+        name.startsWith("chrome-headless-shell-"),
+      );
+      if (!buildDir) continue;
+      const binary = join(versionDir, buildDir, "chrome-headless-shell");
+      if (await pathExists(binary)) return binary;
+    }
+  } catch {
+    // No readable cache; let Playwright resolve its own build.
+  }
+  return undefined;
+}
 
 function boundedTimeout(value?: number): number {
   return Math.min(Math.max(value ?? DEFAULT_TIMEOUT_MS, 1_000), MAX_TIMEOUT_MS);
@@ -130,12 +208,23 @@ export default function browserExtension(pi: ExtensionAPI) {
     await browser?.close().catch(() => undefined);
   }
 
+  async function launchFallbackBrowser() {
+    const { chromium } = await import("playwright");
+    const override = process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH;
+    if (override)
+      return chromium.launch({ headless: true, executablePath: override });
+    try {
+      return await chromium.launch({ headless: true });
+    } catch (error) {
+      const executablePath = await findCachedHeadlessShell();
+      if (!executablePath) throw error;
+      return chromium.launch({ headless: true, executablePath });
+    }
+  }
+
   async function page() {
     if (!fallbackBrowser) {
-      const { chromium } = await import("playwright");
-      fallbackBrowser = await chromium.launch({
-        headless: true,
-      });
+      fallbackBrowser = await launchFallbackBrowser();
     }
     if (!fallbackPage || fallbackPage.isClosed()) {
       const context = await fallbackBrowser.newContext();
@@ -148,7 +237,7 @@ export default function browserExtension(pi: ExtensionAPI) {
     name: "agent_browser",
     label: "Agent Browser",
     description:
-      "Primary browser automation tool backed by agent-browser. Prefer snapshot then @ref interactions; use read for text-heavy pages and screenshots only when visual evidence matters. args are a validated subset of CLI arguments; use absolute HTTP(S) URLs. Interactive mutations always require confirmation, including find actions, even if consequential=false. Set consequential=true to request confirmation for any additional action. JavaScript, global CLI overrides, and AI chat are unavailable. Sessions persist across calls within this pi session.",
+      "Primary browser automation tool backed by agent-browser. Prefer snapshot then @ref interactions; use read for text-heavy pages and screenshots only when visual evidence matters. A screenshot returns the rendered image inline, so you can inspect layout directly; add --annotate to label interactive elements, --full for the whole page instead of the viewport. args are a validated subset of CLI arguments; use absolute HTTP(S) URLs. Interactive mutations always require confirmation, including find actions, even if consequential=false. Set consequential=true to request confirmation for any additional action. JavaScript, global CLI overrides, and AI chat are unavailable. Sessions persist across calls within this pi session.",
     parameters: Type.Object({
       action: Type.Union(
         agentBrowserActions.map((value) => Type.Literal(value)),
@@ -240,8 +329,14 @@ export default function browserExtension(pi: ExtensionAPI) {
         const text = trimOutput(
           [stdout, stderr].filter(Boolean).join("\n").trim() || "OK",
         );
+        const image =
+          params.action === "screenshot" && outputPath
+            ? await inlineScreenshot(outputPath)
+            : undefined;
         return {
-          content: [{ type: "text", text }],
+          content: image
+            ? [{ type: "text", text }, image]
+            : [{ type: "text", text }],
           details: { backend: "agent-browser", session },
         };
       } catch (error) {
@@ -266,7 +361,7 @@ export default function browserExtension(pi: ExtensionAPI) {
     name: "browser_playwright",
     label: "Browser (Playwright fallback)",
     description:
-      "Fallback browser tool. Use only when the primary browser tool is unavailable or incompatible. Prefer DOM text over screenshots. Interactive mutations always require confirmation; consequential=false cannot bypass it. Use absolute HTTP(S) URLs. Set consequential=true for additional confirmation.",
+      "Fallback browser tool. Use only when the primary browser tool is unavailable or incompatible. Prefer DOM text over screenshots. A screenshot captures the viewport and returns the image inline; set fullPage=true only when content below the fold matters, since a tall page downscales badly. Interactive mutations always require confirmation; consequential=false cannot bypass it. Use absolute HTTP(S) URLs. Set consequential=true for additional confirmation.",
     parameters: Type.Object({
       action: Type.Union([
         Type.Literal("open"),
@@ -286,6 +381,12 @@ export default function browserExtension(pi: ExtensionAPI) {
       ),
       value: Type.Optional(
         Type.String({ description: "Text or key for fill, type, or press" }),
+      ),
+      fullPage: Type.Optional(
+        Type.Boolean({
+          description:
+            "Capture the whole scrollable page instead of the viewport (screenshot only)",
+        }),
       ),
       consequential: Type.Optional(Type.Boolean()),
     }),
@@ -337,6 +438,7 @@ export default function browserExtension(pi: ExtensionAPI) {
         const currentPage = await page();
         if (signal?.aborted) throw new Error("Browser action aborted");
         let text: string;
+        let shotPath: string | undefined;
         switch (params.action) {
           case "open":
             if (!params.target) throw new Error("open requires target URL");
@@ -385,16 +487,23 @@ export default function browserExtension(pi: ExtensionAPI) {
             const path =
               params.target ??
               join(SCREENSHOT_DIR, `playwright-${Date.now()}.png`);
-            await currentPage.screenshot({ path, fullPage: true });
+            await currentPage.screenshot({
+              path,
+              fullPage: params.fullPage === true,
+            });
             await chmod(path, 0o600);
+            shotPath = path;
             text = path;
             break;
           }
           default:
             throw new Error(`Unsupported action: ${params.action}`);
         }
+        const image = shotPath ? await inlineScreenshot(shotPath) : undefined;
         return {
-          content: [{ type: "text", text }],
+          content: image
+            ? [{ type: "text", text }, image]
+            : [{ type: "text", text }],
           details: { backend: "playwright", url: currentPage.url() },
         };
       } catch {
