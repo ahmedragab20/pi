@@ -1,10 +1,9 @@
 # pi — Personal AI Engineering Harness
 
-Global config for [pi](https://pi.dev) — the pi-native port of the opencode AI
-Engineering System (subagents + vision routing) merged with the Cursor
-leader/worker and diffing-first workflow. Built for a nerd neovim user: vim
-keybindings, nvim external editor, cheap Luna workers, human-in-the-loop
-review everywhere.
+Global config for [pi](https://pi.dev): a lead/worker engineering harness with
+subagents, vision routing and a diffing-first review workflow. Built for a nerd
+neovim user — vim keybindings, nvim external editor, cheap Luna workers,
+human-in-the-loop review everywhere.
 
 **pi is the active harness.** Default lead: `openai-codex/gpt-6-astra` @ low.
 
@@ -254,7 +253,6 @@ Cold boot to an interactive TUI is about **1.4 s** — launch to first paint set
 | ~127 ms | `diffing` extension |
 | ~117 ms | `herdr-agent-state` — socket round-trip to herdr during `session_start` |
 
-Deferring the Cursor SDK import cut ~630 ms, about a third of the previous boot.
 Measured and rejected as non-factors: TypeScript transpilation costs ~5 ms per
 extension, and `NODE_COMPILE_CACHE` saves only ~24 ms — the cost is module
 execution, not V8 compilation.
@@ -283,21 +281,6 @@ execution, not V8 compilation.
 | `/visualise [topic]` | Architecture / topic / thinking flow diagram |
 | `pi -c` | Continue most recent session |
 | `pi -r` | Browse and resume a session |
-
-## Migration map (opencode → pi)
-
-| opencode / Cursor | pi equivalent |
-| ------------------- | --------------- |
-| `agent/*.md` subagents | `agents/*.md` + `@tintinweb/pi-subagents` (`Agent` tool) |
-| `image-router` plugin | `extensions/vision-router.ts` |
-| `instructions/ai-engineering-system.md` | `AGENTS.md` |
-| `command/diffing.md` | `prompts/diffing.md` + skills |
-| Cursor `leader-worker.mdc` | `AGENTS.md` routing + chore rule |
-| Cursor `explorer.md` / `worker.md` agents | `agents/explorer.md` / `agents/worker.md` |
-| Cursor `no-co-authored-by.mdc` | `AGENTS.md` + `agents/git.md` |
-| Cursor `diffing-plan-review.mdc` / `diffing-session-url.mdc` | `AGENTS.md` + `/plan` `/review` |
-| Cursor CLI `vimMode` | `keybindings.json` + `externalEditor: nvim` + `pi-vim` |
-| herdr plugin (`herdr-agent-state.js`) | `herdr` skill (auto-loaded) |
 
 ## Notes
 
