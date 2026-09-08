@@ -37,7 +37,6 @@ diffing-first workflow — stored as a dotfiles-style git repo at `~/.pi`.
 │   │   ├── astra-1m-alias.ts — gpt-6-astra-1m → upstream gpt-6-astra
 │   │   ├── sol-1m-alias.ts   — gpt-5.6-sol-1m → upstream gpt-5.6-sol
 │   │   ├── btw.ts            — /btw side question overlay
-│   │   ├── collaborate.ts    — cheap workers + balanced Herdr peer teams
 │   │   └── pi-tool-repair.json
 │   ├── npm/                  — pi packages (pi-subagents, vim, pi-lens, …)
 │   ├── prompts/              — /diffing /plan /review /finish /commit

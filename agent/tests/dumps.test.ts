@@ -1,7 +1,7 @@
 /**
  * Regression tests for writeDump idempotence and permissions.
  *
- *   bun test --preload ./agent/tests/goal-stubs.ts ./agent/tests/dumps.test.ts
+ *   bun test --preload ./agent/tests/extension-stubs.ts ./agent/tests/dumps.test.ts
  *
  * Covers:
  *  - same id + different text yields distinct dump paths, both contents retained
@@ -14,7 +14,7 @@
 import { readFileSync, statSync, utimesSync } from "node:fs";
 import { describe, expect, test } from "bun:test";
 import { writeDump } from "../extensions/efficiency/dumps.ts";
-import { TEST_AGENT_DIR } from "./goal-stubs.ts";
+import { TEST_AGENT_DIR } from "./extension-stubs.ts";
 
 describe("writeDump", () => {
 	test("same id + different text returns distinct paths retaining both contents", () => {

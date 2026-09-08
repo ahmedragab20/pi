@@ -41,3 +41,4 @@ pi-acp
 /remote/
 
 agent/extensions/browser/node_modules/
+agent/browser-artifacts/

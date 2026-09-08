@@ -1,11 +1,11 @@
 /**
- * Virtual modules for `bun test` so goal.ts loads outside pi.
+ * Virtual modules for `bun test` so extensions load outside pi.
  *
  * pi aliases these four specifiers itself at extension-load time
  * (dist/core/extensions/loader.js), so nothing resolves them from disk. The
- * stubs only need the handful of symbols goal.ts touches at module scope.
+ * stubs only need the handful of symbols extensions touch at module scope.
  *
- * Run with:  bun test --preload agent/tests/goal-stubs.ts
+ * Run with:  bun test --preload agent/tests/extension-stubs.ts
  */
 
 import { mkdtempSync } from "node:fs";
@@ -15,11 +15,11 @@ import { plugin } from "bun";
 import { parseFrontmatter } from "../npm/node_modules/@earendil-works/pi-coding-agent/dist/utils/frontmatter.js";
 import { SettingsManager } from "../npm/node_modules/@earendil-works/pi-coding-agent/dist/core/settings-manager.js";
 
-/** Every test run gets its own agent dir, so goals never touch ~/.pi/agent. */
+/** Every test run gets its own agent dir, so tests never touch ~/.pi/agent. */
 export const TEST_AGENT_DIR =
-	process.env.GOAL_TEST_AGENT_DIR ?? mkdtempSync(join(tmpdir(), "goal-test-"));
+	process.env.PI_TEST_AGENT_DIR ?? mkdtempSync(join(tmpdir(), "pi-test-"));
 // Survive a second evaluation of this module (preload + import).
-process.env.GOAL_TEST_AGENT_DIR = TEST_AGENT_DIR;
+process.env.PI_TEST_AGENT_DIR = TEST_AGENT_DIR;
 
 const schema = (kind: string, rest: Record<string, unknown> = {}) => ({
 	kind,
@@ -32,7 +32,8 @@ const Type = {
 	Optional: (inner: unknown) => schema("optional", { inner }),
 	String: (options?: unknown) => schema("string", { options }),
 	Literal: (value: unknown) => schema("literal", { value }),
-	Union: (items: unknown[], options?: unknown) => schema("union", { items, options }),
+	Union: (items: unknown[], options?: unknown) =>
+		schema("union", { items, options }),
 	Number: (options?: unknown) => schema("number", { options }),
 	Boolean: (options?: unknown) => schema("boolean", { options }),
 	Array: (items: unknown, options?: unknown) =>

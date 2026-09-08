@@ -1,7 +1,7 @@
 /**
  * Regression tests for project-memory injection and resume refresh.
  *
- *   bun test --preload ./agent/tests/goal-stubs.ts ./agent/tests/project-memory.test.ts
+ *   bun test --preload ./agent/tests/extension-stubs.ts ./agent/tests/project-memory.test.ts
  *
  * Covers:
  *  - resuming a branch that already carries a project-memory message must not
@@ -17,7 +17,7 @@ import { mkdtempSync, mkdirSync, utimesSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
 import { registerProjectMemory } from "../extensions/efficiency/project-memory.ts";
-import { TEST_AGENT_DIR } from "./goal-stubs.ts";
+import { TEST_AGENT_DIR } from "./extension-stubs.ts";
 
 type Handler = (event: unknown, ctx: unknown) => unknown;
 

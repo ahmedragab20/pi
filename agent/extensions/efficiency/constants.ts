@@ -28,7 +28,6 @@ export const CORE_IF_PRESENT = [
 	"grep",
 	"ask_user_question",
 	"todo",
-	"goal",
 	"agent_browser",
 ] as const;
 

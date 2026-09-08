@@ -20,8 +20,6 @@ You → pi (the lead, any model via /model or Ctrl+P)
   │           → isolation: "worktree" for parallel writers (lead merges)
   ├─ Images (text-only leads) → vision-router auto-runs vision fork
   │           → injects [VISION DESCRIPTION]
-  ├─ /goal <task> → long-running loop: criteria + roadmap on disk, plan gate,
-  │                 auto-continue until evidenced + human-reviewed
   └─ Human review → diffing is core: /plan (approve before coding),
                     /review (hand the diff to the human), /finish (apply
                     feedback), /diffing (router)
@@ -41,9 +39,8 @@ subagent. The lead model is never switched.
 
 **Action flow:** request → route (lead / vision / one scoped worker) → optional
 `/plan` approval → implement / delegate → tests & diagnostics → diff review
-(`/review` → `/finish`). `/goal <task>` wraps that in a re-anchored cycle loop until
-every accepted criterion has evidence and the human has reviewed it. The lead
-owns design, debugging, fixes, review; workers do one chore and never recurse.
+(`/review` → `/finish`). The lead owns design, debugging, fixes, and review;
+workers do one chore and never recurse.
 
 > **Accuracy overrides cost.** Never choose a cheaper path if it increases the
 > chance of incorrect implementation, unsafe command, or data loss.
@@ -69,7 +66,6 @@ owns design, debugging, fixes, review; workers do one chore and never recurse.
 ├── skills/harness-diff-read/ — inspect → path-scoped git → diff-reader
 ├── skills/harness-mockup/ — opt-in, lead-authored HTML mockups for diffing
 ├── skills/claude-review/  — independent Claude pane → human-approved fix plan
-├── skills/goal/           — /goal loop playbook (cycles, roadmap, orchestration)
 ├── extensions/
 │   ├── 00-paste-chips.ts  — [Image #N] / [Paste #N] chips (no remount)
 │   ├── paste-images.ts    — decode pasted images to vision/
@@ -84,8 +80,6 @@ owns design, debugging, fixes, review; workers do one chore and never recurse.
 │   ├── todo.ts            — live task list behind /todos
 │   ├── github-pr.ts       — current branch PR discovery, footer ID, agent context
 │   ├── btw.ts             — /btw side question overlay (no tools, no history)
-│   ├── goal.ts            — /goal loop: criteria, roadmap, evidence, gates
-│   ├── collaborate.ts     — cheap workers + balanced Herdr peer teams
 │   ├── astra-1m-alias.ts  — openai-codex/gpt-6-astra-1m → gpt-6-astra
 │   ├── sol-1m-alias.ts    — openai-codex/gpt-5.6-sol-1m → gpt-5.6-sol
 │   └── pi-tool-repair.json — grammar recovery for kimi/glm/qwen/minimax
@@ -95,8 +89,7 @@ owns design, debugging, fixes, review; workers do one chore and never recurse.
 ├── prompts/               — /diffing /plan /review /finish /commit /implement /explore /verify /debug /delegate /claude-review
 ├── tmp/                   — gitignored: tool-dumps
 ├── memory/                — gitignored: global MEMORY.md slugs
-├── goals/                 — gitignored: per-cwd GOAL.md + state.json
-├── tests/                 — bun test for /goal, /btw, and extension gates
+├── tests/                 — bun tests for extensions and gates
 └── vision/                — decoded pasted images (pruned after 7 days)
 ```
 
@@ -196,33 +189,6 @@ Ask something about the current session without adding it to the transcript or i
 
 Works while the lead is streaming. Esc / Enter / Space dismiss. ↑↓ scroll, ←→ or `[` `]` step history, `c` copies the answer, `x` clears earlier side questions.
 
-## Collaboration (/collaborate)
-
-Coordinate a team: the lead owns planning, review, and integration; existing
-cheap Flash workers run each exact task through pi-subagents, and visible
-peers launch in dedicated Herdr team tabs with at most four balanced panes per
-tab (no repeated right-column layout). Task paths have exclusive ownership —
-workers treat everything else as read-only — writing tasks spawn in worktrees,
-and completed worker output waits for lead review. Reload with `/reload`.
-
-`/collaborate start <goal>` opens the ledger **and kicks the lead**. It does
-not spawn workers or peers. Status `collab · add tasks` means zero tasks —
-the lead must `collaborate add` exact briefs, then `collaborate run`. A
-finished worker is `review` until the lead `accept`s (merge) or `reject`s;
-dependents wait for accept. `/collaborate` with no args opens the board.
-Reload resumes the ledger. Cap 3 running.
-
-```
-/collaborate start <goal>
-/collaborate add worker --paths=src/a.ts -- <exact brief and targeted check>
-/collaborate add tests --after=T1 --paths=tests/a.test.ts -- <exact brief and targeted check>
-/collaborate run all
-/collaborate accept T1
-/collaborate peer <name> [cwd]
-/collaborate assign T2 <name>
-/collaborate
-```
-
 ## Diffing is core
 
 Human-in-the-loop review is the default workflow, not an add-on:
@@ -243,33 +209,6 @@ authorization. Skills from `~/.agents/skills/diffing*/` are auto-loaded
 (including `diffing-mockup-author`).
 Read diffs with inspect (`harness-diff-read`); do not dump the whole patch into
 `diff-reader`.
-
-## Goal loop (`/goal`)
-
-Keep the lead on one task across re-anchored cycles until every accepted
-criterion has evidence, the lead has verified it, and the human has reviewed
-it. Chat is not memory — `~/.pi/agent/goals/<cwd-hash>/GOAL.md` is. Reload with
-`/reload`.
-
-| Command | What |
-| --------- | ------ |
-| `/goal <task>` | Editor for criteria → plan-before-code → cycle until done |
-| `/goal status` | Phase, cycle, criteria, roadmap, unread agent handles |
-| `/goal stop` | Halt auto-continue |
-| `/goal continue` | Resume after a gate, stall, interrupt, or reload |
-| `/goal done` | Close the goal now — confirms first if the gate is not met |
-| `/goal file` | Print the GOAL.md path |
-
-The tool holds the gates: evidence must name what was seen (a rubber stamp is
-rejected), `set_criteria` carries evidence across a rewrite and refuses to drop
-an evidenced criterion without `force`, `write`/`edit` inside the project are
-blocked until `goal plan_approved` records the human's verdict, and `goal done`
-needs every criterion evidenced **and** a review newer than the last evidence
-change. Once that gate holds the goal closes itself on the next `reviewed` or
-`cycle` — `/goal done` closes it early, recording what was skipped in the goal
-file. Three cycles with no new evidence and no tree change block the loop.
-Compaction happens at a cycle boundary only past 55% of the window. Cycle cap
-50; `/goal continue` raises it. Skill: `skills/goal/SKILL.md`.
 
 ## Herdr coordination
 
@@ -323,7 +262,6 @@ execution, not V8 compilation.
 | `Ctrl+V` | Paste image → auto vision routing |
 | `alt+h/j/k/l` | Vim-style cursor movement in the editor |
 | `/tree` `/fork` `/compact` | Session tools |
-| `/goal <task>` | Loop until criteria are evidenced + reviewed |
 | `/agents` | Manage / view / stop / steer running workers |
 | `/microcompact` `/tools` `/memory` | Token controls |
 | `pi -c` | Continue most recent session |

@@ -130,34 +130,6 @@ The `todo` list **is** the user's live progress (`/todos`). Stale items are a bu
 - New subtasks discovered mid-flight → `add` them right away; scope changed → `update` that id.
 - **Skip it only for trivial ≤2-step work.** `clear` only when the whole task is done.
 - After compaction or a resume: `todo list` first, then continue from the first unfinished item.
-- **In a `/goal` loop the roadmap carries the milestones.** `todo` is only for the mechanical steps inside the current slice; `clear` it at the cycle boundary.
-
-## Goal loop (`/goal`)
-
-When the user starts `/goal`, keep working that task across re-anchored cycles until every accepted criterion has evidence, you have verified it, and the human has reviewed it. Load `skills/goal/SKILL.md`.
-
-- The scoped `state.json` under the goal directory is the authoritative record; `GOAL.md` is a generated human-readable mirror. Chat is not the record — `goal status` prints both paths. Re-read it and the real sources each cycle.
-- Criteria are the contract; the roadmap (`set_roadmap` / `step`) is the plan. Both live in the goal file, not in your head.
-- Record proof with the `goal` tool (`evidence`, then `cycle` / `await_*` / `blocked` / `done`). Never mark a criterion met in prose only, and never from a worker's report — read the diff, run the check, evidence what you saw.
-- **Plan before code is enforced:** built-in writes, mutating shell commands, AST replacement, applied LSP rename/command, nested parallel mutators, and write-capable agents are blocked inside the project until `goal plan_approved` records the human's verdict (or their waiver). Read-only planning agents stay allowed.
-- `goal done` is rejected until every criterion is evidenced **and** the human review is newer than the last evidence change. The loop closes itself the moment that gate is satisfied — when it says so, stop and report.
-- Drain every background spawn (`get_subagent_result`) before you `goal cycle` — unread background handles persist until a terminal `get_subagent_result` consumes them.
-- Changing criteria or roadmap text revokes plan approval and review — re-plan and re-review.
-- The extension auto-continues and compacts only when the window is actually filling, so treat anything above the cycle marker as stale, not gone.
-- `/goal stop` means stop, `/goal done` closes the goal on the spot. Three cycles with no new evidence and no tree change blocks the loop.
-
-This is the allowed exception to "don't keep going" — not an exception to accuracy, evidence, or human gates.
-
-## Collaboration (`/collaborate`)
-
-When the user starts `/collaborate`, you are the orchestrator. **Start does not spawn anyone.** The ledger is empty until you add exact worker chores.
-
-- Explore first if you cannot already write exact briefs (`Agent` explorer for a named search).
-- Add chores with the `collaborate` tool (`add` then `run`). Write tasks need exclusive `--paths`, numbered steps, and a named check. Cap is 3 running.
-- You own planning, non-chore code, review, and integration. Do not dump the whole goal on one worker, and do not spawn `Agent()` for chores that belong on the ledger.
-- A finished worker is status `review`, not done. Read the actual diff, then `collaborate accept` (merges the worktree) or `reject` / `retry`. Dependents do not start until you accept. Do not trust the self-report.
-- `finish` only when every live task is accepted or dropped.
-- `collaborate peer` is a visible second lead-tier Herdr session. `assign` sends a ready task's contract to that peer. Never use peers for Flash chores.
 
 ## Diffing
 
@@ -187,7 +159,6 @@ Conventional Commits only: `<type>(<scope>): <description>`. **No `Co-authored-b
 - **At most one resume** per agent id. Still stuck → synthesize, fix the gap yourself, or ask the user.
 - **No ping-pong:** explore (optional) → implement → lead review → done.
 - Two failed attempts on the same goal → do it yourself, or escalate to the user.
-- `/goal` is the exception: the extension keeps re-anchoring cycles until criteria + review land, or it stalls / the user `/goal stop`s. Still two failed attempts per slice, then `goal blocked`.
 
 ## Accuracy / evidence / ask
 
