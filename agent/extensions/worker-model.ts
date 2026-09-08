@@ -1,5 +1,5 @@
 /**
- * Worker models: Codex Luna first, then Go Luna if Codex is unavailable.
+ * Worker models: Codex Luna first, then Codex Spark if Luna is unavailable.
  * Never switches the lead.
  *
  * Agent frontmatter cannot express a fallback (a pinned `model:` is locked),
@@ -19,7 +19,7 @@ import {
 	markExhaustedFromError,
 	markModelExhausted,
 	resetProviderExhaustion,
-} from "./opencode-fallback.ts";
+} from "./usage-limits.ts";
 import {
 	resolveAgentThinking,
 	validateThinkingLevel,
@@ -41,7 +41,7 @@ type PendingBackground = {
 
 const WORKER_MODELS: Pair[] = [
 	["openai-codex", "gpt-5.6-luna"],
-	["opencode-go", "gpt-5.6-luna"],
+	["openai-codex", "gpt-5.3-codex-spark"],
 ];
 const RETRY_TIMEOUT_MS = 8 * 60_000;
 

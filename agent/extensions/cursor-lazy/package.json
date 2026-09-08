@@ -1,9 +1,0 @@
-{
-  "name": "cursor-lazy",
-  "version": "1.0.0",
-  "private": true,
-  "description": "Registers the Cursor provider at startup from the disk-cached catalog",
-  "dependencies": {
-    "pi-cursor-sdk": "0.2.0"
-  }
-}

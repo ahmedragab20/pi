@@ -1,11 +1,9 @@
 /**
- * OpenCode usage-limit detection shared by worker-model and vision-router.
+ * Usage-limit / quota error detection shared by worker-model and vision-router.
  * Does not switch the lead — callers decide what to spawn next.
  */
 const USAGE_LIMIT_RE = new RegExp(
 	[
-		"GoUsageLimitError",
-		"FreeUsageLimitError",
 		"Monthly usage limit reached",
 		"available balance",
 		"insufficient_quota",
@@ -55,20 +53,13 @@ export function resetProviderExhaustion(): void {
 	exhaustedModels.clear();
 }
 
-export default function opencodeFallbackLib() {
+export default function usageLimitsLib() {
 	// Shared module discovered as `extensions/*.ts`; not a real extension.
 }
 
-/** Map an error to the exact model when known, otherwise to its provider. */
+/** Map an error to the exact model when known. Without a model spec there is
+ * nothing to attribute the failure to, so the caller just retries its own chain. */
 export function markExhaustedFromError(text: string, modelSpec?: string): void {
 	if (!isUsageLimitError(text)) return;
-	if (modelSpec?.includes("/")) {
-		markModelExhausted(modelSpec);
-		return;
-	}
-	if (/FreeUsageLimitError/i.test(text) || /\bopencode\/(?!go)/i.test(text)) {
-		markProviderExhausted("opencode");
-		return;
-	}
-	markProviderExhausted("opencode-go");
+	if (modelSpec?.includes("/")) markModelExhausted(modelSpec);
 }

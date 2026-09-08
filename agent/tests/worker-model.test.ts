@@ -4,7 +4,7 @@
  *   bun test agent/tests/worker-model.test.ts
  *
  * Regression coverage for the worker model chain
- * (openai-codex/gpt-5.6-luna → opencode-go/gpt-5.6-luna):
+ * (openai-codex/gpt-5.6-luna → openai-codex/gpt-5.3-codex-spark):
  * exhaustion must be scoped per model/provider, and the foreground usage-limit
  * retry must re-spawn on the next model through `subagents:rpc:spawn` while
  * preserving the runner options of the original Agent call.
@@ -21,10 +21,10 @@ import {
 	markProviderExhausted,
 	markModelExhausted,
 	resetProviderExhaustion,
-} from "../extensions/opencode-fallback.ts";
+} from "../extensions/usage-limits.ts";
 
 const OPENAI_LUNA = "openai-codex/gpt-5.6-luna";
-const GO_LUNA = "opencode-go/gpt-5.6-luna";
+const CODEX_SPARK = "openai-codex/gpt-5.3-codex-spark";
 const FIXTURE_ROOT = fileURLToPath(new URL("../tmp", import.meta.url));
 mkdirSync(FIXTURE_ROOT, { recursive: true });
 const fixtureDirs: string[] = [];
@@ -100,7 +100,7 @@ function makeHarness() {
 				bus.emit("subagents:completed", {
 					id: "fb-agent-1",
 					status: "completed",
-					result: "fallback output from deepseek",
+					result: "fallback output from spark",
 				});
 			}, 0);
 		}, 0);
@@ -124,13 +124,13 @@ function makeHarness() {
 		modelRegistry: {
 			find: (provider: string, id: string) =>
 				(provider === "openai-codex" && id === "gpt-5.6-luna") ||
-				(provider === "opencode-go" && id === "gpt-5.6-luna")
+				(provider === "openai-codex" && id === "gpt-5.3-codex-spark")
 					? { provider, id }
 					: undefined,
 			getApiKeyAndHeaders: async () => ({ ok: true, apiKey: "test-key" }),
 			getAll: () => [
 				{ provider: "openai-codex", id: "gpt-5.6-luna" },
-				{ provider: "opencode-go", id: "gpt-5.6-luna" },
+				{ provider: "openai-codex", id: "gpt-5.3-codex-spark" },
 			],
 		},
 	};
@@ -156,32 +156,30 @@ describe("worker model exhaustion scopes", () => {
 	test("marking the first Luna model exhausted leaves fallback selectable", () => {
 		markModelExhausted(OPENAI_LUNA);
 		expect(isModelExhausted(OPENAI_LUNA)).toBe(true);
-		expect(isModelExhausted(GO_LUNA)).toBe(false);
+		expect(isModelExhausted(CODEX_SPARK)).toBe(false);
 		// A single dead model is not a dead provider.
 		expect(isProviderExhausted("openai-codex")).toBe(false);
 	});
 
-	test("marking each provider exhausted suppresses its Luna model", () => {
+	test("marking a provider exhausted suppresses every model on it", () => {
+		// Both chain models live on openai-codex, so provider exhaustion takes
+		// out the whole chain — an unrelated provider is untouched.
 		markProviderExhausted("openai-codex");
 		expect(isProviderExhausted("openai-codex")).toBe(true);
 		expect(isModelExhausted(OPENAI_LUNA)).toBe(true);
-		expect(isModelExhausted(GO_LUNA)).toBe(false);
-
-		markProviderExhausted("opencode-go");
-		expect(isProviderExhausted("opencode-go")).toBe(true);
-		expect(isModelExhausted(GO_LUNA)).toBe(true);
-		expect(isModelExhausted(OPENAI_LUNA)).toBe(true);
+		expect(isModelExhausted(CODEX_SPARK)).toBe(true);
+		expect(isProviderExhausted("anthropic")).toBe(false);
 	});
 
 	test("reset clears both scopes", () => {
 		markModelExhausted(OPENAI_LUNA);
-		markProviderExhausted("opencode-go");
+		markProviderExhausted("anthropic");
 		markProviderExhausted("openai-codex");
 		resetProviderExhaustion();
-		expect(isProviderExhausted("opencode-go")).toBe(false);
+		expect(isProviderExhausted("anthropic")).toBe(false);
 		expect(isProviderExhausted("openai-codex")).toBe(false);
 		expect(isModelExhausted(OPENAI_LUNA)).toBe(false);
-		expect(isModelExhausted(GO_LUNA)).toBe(false);
+		expect(isModelExhausted(CODEX_SPARK)).toBe(false);
 	});
 });
 
@@ -210,7 +208,7 @@ describe("foreground Agent usage-limit fallback", () => {
 				model: OPENAI_LUNA,
 			},
 			content: [
-				{ type: "text", text: "GoUsageLimitError: quota exceeded for opencode-go" },
+				{ type: "text", text: "insufficient_quota: quota exceeded" },
 			],
 		})) as { content: { type: string; text: string }[]; isError?: boolean }[];
 
@@ -220,7 +218,7 @@ describe("foreground Agent usage-limit fallback", () => {
 		const options = spawn?.options ?? {};
 		expect(spawn?.type).toBe("tests");
 		expect(spawn?.prompt).toBe("run the worker suite");
-		expect(options.model).toBe(GO_LUNA);
+		expect(options.model).toBe(CODEX_SPARK);
 		// Runner options of the original Agent call survive the retry.
 		expect(options.description).toBe("run tests");
 		expect(options.name).toBe("tests-worker");
@@ -237,8 +235,8 @@ describe("foreground Agent usage-limit fallback", () => {
 			.filter((c) => c.type === "text")
 			.map((c) => c.text)
 			.join("\n");
-		expect(text).toContain("fallback output from deepseek");
-		expect(text).not.toContain("GoUsageLimitError");
+		expect(text).toContain("fallback output from spark");
+		expect(text).not.toContain("insufficient_quota");
 	});
 
 	test("snapshots worker frontmatter thinking before a quota retry", async () => {
@@ -272,7 +270,7 @@ describe("foreground Agent usage-limit fallback", () => {
 				toolName: "Agent",
 				isError: true,
 				input,
-				content: [{ type: "text", text: "GoUsageLimitError: quota exceeded" }],
+				content: [{ type: "text", text: "insufficient_quota: quota exceeded" }],
 			});
 			expect(h.spawns).toHaveLength(1);
 			const retryThinkingSnapshot = h.spawns[0]?.options.thinkingLevel;
@@ -317,11 +315,11 @@ describe("foreground Agent usage-limit fallback", () => {
 		h.bus.emit("subagents:failed", {
 			id: "bg-agent-1",
 			status: "error",
-			error: "GoUsageLimitError: quota exceeded for opencode-go",
+			error: "insufficient_quota: quota exceeded",
 		});
 		await new Promise((resolve) => setTimeout(resolve, 10));
 		expect(h.spawns).toHaveLength(1);
-		expect(h.spawns[0].options.model).toBe(GO_LUNA);
+		expect(h.spawns[0].options.model).toBe(CODEX_SPARK);
 		expect(h.spawns[0].type).toBe("explorer");
 		expect(h.spawns[0].prompt).toBe("map the project");
 	});

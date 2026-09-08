@@ -30,10 +30,10 @@ and delegates only mechanical chores to cheap Luna workers, which run in
 isolated sessions with their own context windows. Luna workers use
 `gpt-5.6-luna` on the Codex provider, then the same model on the Go bundle.
 A multimodal lead (`openai-codex/gpt-6-astra`, `openai-codex/gpt-6-astra-1m`,
-`openai-codex/gpt-5.6-sol`, `openai-codex/gpt-5.6-sol-1m`, or `xai/grok-4.6`)
+`openai-codex/gpt-5.6-sol`, or `openai-codex/gpt-5.6-sol-1m`)
 sees pasted images natively and nothing is routed.
-A text-only lead — any model whose `input` lacks `image`, today every `cursor/*`
-model plus `openai-codex/gpt-5.3-codex-spark` — triggers `extensions/vision-router.ts`,
+A text-only lead — any model whose `input` lacks `image`, today
+`openai-codex/gpt-5.3-codex-spark` — triggers `extensions/vision-router.ts`,
 which forks a headless `pi -p` child down its own model chain and injects a
 `[VISION DESCRIPTION]` block before the lead sees the turn. There is no vision
 subagent. The lead model is never switched.
@@ -52,10 +52,9 @@ workers do one chore and never recurse.
 ~/.pi/agent/
 ├── settings.json          — default openai-codex/gpt-6-astra @ low, Ctrl+P cycle
 │                             (enabledModels), compact TUI, nvim editor
-├── models.json            — model definitions (xai/grok-4.6: 500K context,
-│                             $2/$6, long-context $4/$12 above 200K input;
-│                             openai-codex/gpt-5.6-sol-1m: 1.05M context,
-│                             long-context pricing above 272K)
+├── models.json            — model definitions (openai-codex/gpt-5.6-sol-1m and
+│                             gpt-6-astra-1m: 1.05M context, long-context
+│                             pricing above 272K)
 ├── keybindings.json       — vim-style editing; Ctrl+C interrupts, Esc is vim
 ├── AGENTS.md              — always-on card (chore test, phase table,
 │                             auto-spawn triggers, worker brief spec,
@@ -74,11 +73,10 @@ workers do one chore and never recurse.
 │   ├── efficiency/        — compress, fold, compaction coordinator,
 │   │                         deferred tools, memory
 │   ├── context-efficiency.ts — early compact on windows < 500k
-│   ├── cursor-lazy/       — Cursor provider, loaded on demand by /cursor-load
 │   ├── vision-router.ts   — auto vision for pasted images
 │   ├── worker-model.ts    — worker model chain (Codex Luna → Go bundle Luna)
 │   ├── process/           — shared helpers: agent thinking levels, child spawn
-│   ├── opencode-fallback.ts — shared usage-limit detection
+│   ├── usage-limits.ts    — shared quota / usage-limit detection
 │   ├── security-gate.ts   — confirms risky commands, blocks protected paths
 │   ├── security/          — canonical path resolution behind security-gate
 │   ├── browser/           — agent_browser (agent-browser CLI) + Playwright
@@ -104,7 +102,6 @@ workers do one chore and never recurse.
 ├── tests/                 — bun tests for extensions and gates
 ├── tsconfig.json          — strict typecheck over extensions/ and tests/
 ├── models-store.json      — cached provider model catalogs
-├── cursor-sdk*.json       — cached Cursor catalog, context windows, fast defaults
 ├── trust.json             — per-directory project trust decisions
 ├── visualisations/        — /visualise output (tracked)
 ├── tmp/                   — gitignored: tool-dumps
@@ -131,20 +128,11 @@ workers do one chore and never recurse.
 | `openai-codex/gpt-5.3-codex-spark` | openai-codex | Lead — text-only |
 | `openai-codex/gpt-5.6-sol` | openai-codex | Lead — 272K window |
 | `openai-codex/gpt-5.6-sol-1m` | openai-codex | Lead — 1.05M context |
-| `xai/grok-4.6` | xai | Lead — 500K context |
-| `opencode-go/deepseek-v4-pro` | Go bundle | Lead |
-| `opencode-go/deepseek-v4-flash` | Go bundle | Optional lead |
-| `opencode-go/glm-5.3` | Go bundle | Lead |
-| `opencode-go/glm-5.3-flash` | Go bundle | Optional lead |
-
-Cursor models are deliberately out of the Ctrl+P cycle. The Cursor provider is no longer registered at startup, so `enabledModels` cannot resolve `cursor/*` entries there and listing them only produced boot warnings. Run `/cursor-load` once to register the provider, then pick Cursor models with `/model`.
 
 Everything else stays on `/model` (not the cycle).
 
 Default lead `openai-codex/gpt-6-astra` uses the built-in Codex provider @ low
-thinking.
-`xai/grok-4.6` is a custom merge in `models.json`: openai-responses API, 500K context,
-$2/$6 (long-context $4/$12 above 200K input), thinking low/medium/high/xhigh.
+thinking. `openai-codex` and `anthropic` are the only configured providers.
 
 `gpt-6-astra-1m` rewrites to upstream `gpt-6-astra` via `astra-1m-alias.ts`.
 `gpt-5.6-sol-1m` is 1.05M context (rewrites to upstream `gpt-5.6-sol`;
@@ -166,7 +154,7 @@ long-context pricing above 272K input).
 | `diff-reader` | luna | none | Compress a **path-scoped** dump (inspect first) |
 
 Workers are **depth 1** — they never spawn workers. Luna workers use
-`openai-codex/gpt-5.6-luna`, falling back to `opencode-go/gpt-5.6-luna`
+`openai-codex/gpt-5.6-luna`, falling back to `openai-codex/gpt-5.3-codex-spark`
 when the first option is unauthed **or out of usage**. Each agent pins its own `thinking`
 and `max_turns` in frontmatter. The lead is never switched
 (`extensions/worker-model.ts`). Spawn with `Agent({ subagent_type, prompt, description })`.
@@ -283,7 +271,7 @@ execution, not V8 compilation.
 | `Ctrl+G` | Open external editor (nvim) |
 | `@file` | Reference a file in the prompt |
 | `@worker …` | Message / resume / start a subagent (empty prompt) |
-| `↓` / `←` (empty prompt) | Jump into FleetView — needs `fleetView: true`, currently off |
+| `↓` / `←` (empty prompt) | Jump into FleetView while workers run |
 | `!cmd` / `!!cmd` | Run shell, send output to the model / hidden |
 | `Alt+Enter` | Queue follow-up message |
 | `Ctrl+V` | Paste image → auto vision routing |
@@ -309,20 +297,18 @@ execution, not V8 compilation.
 | Cursor `no-co-authored-by.mdc` | `AGENTS.md` + `agents/git.md` |
 | Cursor `diffing-plan-review.mdc` / `diffing-session-url.mdc` | `AGENTS.md` + `/plan` `/review` |
 | Cursor CLI `vimMode` | `keybindings.json` + `externalEditor: nvim` + `pi-vim` |
-| Cursor model `grok-4.6` | `/cursor-load`, then `/model` (out of the Ctrl+P cycle) |
 | herdr plugin (`herdr-agent-state.js`) | `herdr` skill (auto-loaded) |
 
 ## Notes
 
 - Extensions hot-reload with `/reload` after edits.
-- Cursor provider is deferred and no longer loads at startup. `/cursor-load` registers it on demand (this is what makes `cursor/*` models selectable), `/cursor-load --refresh` fetches the live Cursor catalog and replaces the cache, `/cursor-unload` unregisters it. Setting the environment variable `PI_CURSOR_EAGER=1` restores the old boot-time registration. Install runtime deps only (`npm install --omit=dev`).
 - Child workers are lean: `isolated: true` (no extensions/skills; the brief is the whole context; prevents recursion).
 - `settings.json` is the single source of truth for model/thinking/compaction.
 - Lead search is FFF in `override` mode (`find`/`grep` are FFF, not fd/rg). Workers still use built-in `find`/`grep` because they spawn `isolated`.
 - Piolium is not a global package. Install it in the repo you are auditing.
 - TUI: tool/user cards use rose-pine `surface`/`overlay`. Code blocks use the high-contrast rose-pine syntax map (iris keywords, rose functions, foam types/vars, gold strings/numbers). Pasted images and long inserts become `[Image #N]` / `[Paste #N · …]` chips (`extensions/00-paste-chips.ts`).
 - Deferred tools: core coding tools stay on; package extras start off (`tool_search` / `/tools`).
-- Auth: `opencode-go` and `opencode` API keys are in `~/.pi/agent/auth.json` (via `/login`). Cursor auth is the Cursor provider.
+- Auth: `openai-codex` and `anthropic` credentials are in `~/.pi/agent/auth.json` (via `/login`).
 
 ## Hardening and regression checks
 

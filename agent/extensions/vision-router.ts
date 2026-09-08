@@ -1,13 +1,13 @@
 /**
- * vision-router.ts — port of opencode's `image-router` plugin for pi.
+ * vision-router.ts — automatic vision for text-only leads.
  *
- * Primary leads on this harness (default: opencode-go/deepseek-v4-pro) have NO native
- * vision. When the user pastes an image (Ctrl+V) and the active model cannot
- * see images, this extension:
+ * A text-only lead (any model whose `input` lacks `image`) cannot see a pasted
+ * image. When the user pastes one (Ctrl+V) and the active model cannot see it,
+ * this extension:
  *
  *   1. decodes the pasted image(s) to `~/.pi/agent/vision/`
  *   2. auto-runs a vision-capable model in a child pi process
- *      (Codex Luna → Go Luna → free MiMo → Go MiMo)
+ *      (Codex Luna → Codex 5.4-mini)
  *   3. transforms the user input to inject a `[VISION DESCRIPTION]` block and
  *      strips the raw image parts from the lead's message
  *
@@ -46,13 +46,11 @@ import {
 	isModelExhausted,
 	isUsageLimitError,
 	markExhaustedFromError,
-} from "./opencode-fallback.ts";
+} from "./usage-limits.ts";
 
 const VISION_MODELS = [
 	"openai-codex/gpt-5.6-luna",
-	"opencode-go/gpt-5.6-luna",
-	"opencode/mimo-v2.5-free",
-	"opencode-go/mimo-v2.5",
+	"openai-codex/gpt-5.4-mini",
 ] as const;
 const VISION_TIMEOUT_MS = 90_000;
 const ENTRY_TYPE = "vision-job";

@@ -3,6 +3,6 @@
   "fallbackSubagent": "none",
   "workflowsEnabled": false,
   "maxSubagentDepth": 1,
-  "widgetMode": "off",
-  "fleetView": false
+  "widgetMode": "background",
+  "fleetView": true
 }
