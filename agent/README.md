@@ -66,6 +66,10 @@ workers do one chore and never recurse.
 ├── skills/harness-diff-read/ — inspect → path-scoped git → diff-reader
 ├── skills/harness-mockup/ — opt-in, lead-authored HTML mockups for diffing
 ├── skills/claude-review/  — independent Claude pane → human-approved fix plan
+├── skills/harness-browser/ — browser control rules (loaded on demand)
+├── skills/harness-vision/ — pasted-image / vision-router rules (on demand)
+├── skills/harness-diffing/ — diffing workflow policy (on demand)
+├── skills/harness-herdr/  — herdr pane rules (on demand)
 ├── extensions/
 │   ├── 00-paste-chips.ts  — [Image #N] / [Paste #N] chips (no remount)
 │   ├── paste-images.ts    — decode pasted images to vision/

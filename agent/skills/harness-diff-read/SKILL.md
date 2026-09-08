@@ -7,7 +7,7 @@ description: Read working-tree, PR, or commit diffs with scoped inspect APIs. Us
 
 Stop at the first step that yields enough evidence. Never paste the whole tree into a worker because inspect felt slow.
 
-Cursor's `diffing` MCP may be bound to a **different repo** (the product checkout). Prefer `diffing inspect` from this cwd, or pi bridge tools (`pi__diffing_*`). Do not use Cursor MCP `diff_files`/`diff_slice` unless `review_session_status` reports this consumer repo.
+The `diffing` MCP may be bound to a **different repo** (the product checkout). Prefer `diffing inspect` from this cwd, or the `diffing_*` extension tools. Do not use MCP `diff_files`/`diff_slice` unless `review_session_status` reports this consumer repo.
 
 Carry `generation` from `summary` into later calls. On stale generation (HTTP 409), re-run `summary` and restart that traversal.
 
