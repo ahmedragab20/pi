@@ -7,20 +7,21 @@ import {
 	writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
-import type { ImageContent, TextContent } from "@earendil-works/pi-ai";
 import { formatSize } from "@earendil-works/pi-coding-agent";
 import { DUMP_MAX_AGE_MS, dumpDir, dumpPath } from "./constants.ts";
 
 export { formatSize };
 
+export type ContentPart = { type: string; text?: string };
+
 export function contentText(
-	content: string | (TextContent | ImageContent)[] | undefined,
+	content: string | ContentPart[] | undefined,
 ): string {
 	if (!content) return "";
 	if (typeof content === "string") return content;
 	return content
-		.filter((c): c is TextContent => c.type === "text")
-		.map((c) => c.text)
+		.filter((c) => c.type === "text")
+		.map((c) => c.text ?? "")
 		.join("\n");
 }
 

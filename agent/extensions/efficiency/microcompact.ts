@@ -3,7 +3,6 @@
  * Session JSONL is unchanged. Stubs always include a dump path.
  */
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import type { ImageContent, TextContent } from "@earendil-works/pi-ai";
 import {
 	COMPRESSED_MARKER,
 	FOLDED_MARKER,
@@ -12,7 +11,13 @@ import {
 	SMALL_RESULT_BYTES,
 	isCompressibleTool,
 } from "./constants.ts";
-import { contentText, formatSize, lastLines, writeDump } from "./dumps.ts";
+import {
+	type ContentPart,
+	contentText,
+	formatSize,
+	lastLines,
+	writeDump,
+} from "./dumps.ts";
 
 let enabled = true;
 let lastFolded = 0;
@@ -32,7 +37,7 @@ type ToolResultLike = MessageLike & {
 	role: "toolResult";
 	toolCallId: string;
 	toolName: string;
-	content: (TextContent | ImageContent)[];
+	content: ContentPart[];
 	isError?: boolean;
 };
 

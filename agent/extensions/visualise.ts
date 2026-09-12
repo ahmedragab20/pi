@@ -12,7 +12,6 @@
 
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { StringEnum } from "@earendil-works/pi-ai";
 import type {
 	ExtensionAPI,
 	ExtensionCommandContext,
@@ -25,13 +24,13 @@ import { Type, type Static } from "typebox";
 // Schema
 // ---------------------------------------------------------------------------
 
-const GraphKind = StringEnum([
-	"flowchart",
-	"sequence",
-	"concept",
-	"decision",
-	"dependency",
-] as const);
+const GraphKind = Type.Union([
+	Type.Literal("flowchart"),
+	Type.Literal("sequence"),
+	Type.Literal("concept"),
+	Type.Literal("decision"),
+	Type.Literal("dependency"),
+]);
 
 const NodeSchema = Type.Object({
 	id: Type.String({

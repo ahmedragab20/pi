@@ -6,7 +6,6 @@
  * branching, reload, and compaction keep the same snapshot.
  */
 
-import { StringEnum } from "@earendil-works/pi-ai";
 import type {
 	ExtensionAPI,
 	ExtensionContext,
@@ -41,7 +40,13 @@ const TODO_WIDGET = "todos";
 type AgentActivity = "queued" | "running";
 
 const TodoParams = Type.Object({
-	action: StringEnum(["list", "add", "toggle", "update", "clear"] as const),
+	action: Type.Union([
+		Type.Literal("list"),
+		Type.Literal("add"),
+		Type.Literal("toggle"),
+		Type.Literal("update"),
+		Type.Literal("clear"),
+	]),
 	text: Type.Optional(
 		Type.String({ description: "Todo text (for add / update)" }),
 	),
@@ -181,18 +186,12 @@ export default function (pi: ExtensionAPI) {
 				const queued = agents.length - running;
 				if (running > 0) {
 					parts.push(
-						theme.fg(
-							"accent",
-							`${running} agent${running === 1 ? "" : "s"} running`,
-						),
+						theme.fg("accent", `${running} agent${running === 1 ? "" : "s"} running`),
 					);
 				}
 				if (queued > 0) {
 					parts.push(
-						theme.fg(
-							"muted",
-							`${queued} agent${queued === 1 ? "" : "s"} queued`,
-						),
+						theme.fg("muted", `${queued} agent${queued === 1 ? "" : "s"} queued`),
 					);
 				}
 			}

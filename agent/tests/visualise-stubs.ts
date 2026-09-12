@@ -30,6 +30,9 @@ const Type = {
 		schema("object", { properties }),
 	Optional: (inner: unknown) => schema("optional", { inner }),
 	String: (options?: unknown) => schema("string", { options }),
+	Literal: (value: unknown) => schema("literal", { value }),
+	Union: (items: unknown[], options?: unknown) =>
+		schema("union", { items, options }),
 	Array: (items: unknown, options?: unknown) =>
 		schema("array", { items, options }),
 };
@@ -65,13 +68,6 @@ export function truncateToWidth(
 plugin({
 	name: "visualise-extension-stubs",
 	setup(build) {
-		build.module("@earendil-works/pi-ai", () => ({
-			exports: {
-				StringEnum: (values: readonly string[], options?: unknown) =>
-					schema("enum", { values, options }),
-			},
-			loader: "object",
-		}));
 		build.module("@earendil-works/pi-coding-agent", () => ({
 			exports: { getAgentDir: () => TEST_AGENT_DIR },
 			loader: "object",
