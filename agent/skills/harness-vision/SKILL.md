@@ -1,6 +1,6 @@
 ---
 name: harness-vision
-description: How pasted images reach the lead: native multimodal input versus the vision-router fallback. Use when the user pastes an image, when a [VISION DESCRIPTION] block appears, or when a description is missing or looks wrong.
+description: "How pasted images reach the lead: native multimodal input versus the vision-router fallback. Use when the user pastes an image, when a [VISION DESCRIPTION] block appears, or when a description is missing or looks wrong."
 ---
 
 # Images

@@ -2,7 +2,7 @@
   "lastChangelogVersion": "0.85.1",
   "theme": "rose-pine",
   "defaultProvider": "openai-codex",
-  "defaultModel": "gpt-6-astra",
+  "defaultModel": "gpt-5.6-sol",
   "defaultThinkingLevel": "low",
   "modelThinkingLevels": {
     "openai-codex/gpt-6-astra": "low"
@@ -42,8 +42,8 @@
     "npm:@juicesharp/rpiv-ask-user-question",
     "npm:pi-vim",
     "npm:pi-lens",
-    "npm:@tintinweb/pi-subagents",
-    "npm:pi-intercom"
+    "npm:pi-intercom",
+    "git:github.com/ahmedragab20/pi-subagents@fork-v0.19.0-inspector.2"
   ],
   "showHardwareCursor": false,
   "editorPaddingX": 1,

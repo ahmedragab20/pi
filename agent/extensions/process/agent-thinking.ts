@@ -5,8 +5,8 @@ import {
 	SettingsManager,
 	type ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
-import { loadCustomAgents } from "../../npm/node_modules/@tintinweb/pi-subagents/dist/custom-agents.js";
-import { resolveModel } from "../../npm/node_modules/@tintinweb/pi-subagents/dist/model-resolver.js";
+import { loadCustomAgents } from "../../git/github.com/ahmedragab20/pi-subagents/dist/custom-agents.js";
+import { resolveModel } from "../../git/github.com/ahmedragab20/pi-subagents/dist/model-resolver.js";
 
 export type ThinkingLevel =
 	| "off"

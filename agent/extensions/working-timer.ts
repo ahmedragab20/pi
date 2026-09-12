@@ -1,20 +1,9 @@
 import type {
 	ExtensionAPI,
 	ExtensionContext,
-	Theme,
 } from "@earendil-works/pi-coding-agent";
 
 const STATUS_KEY = "working-timer";
-
-const THINKING_FG = {
-	off: "thinkingOff",
-	minimal: "thinkingMinimal",
-	low: "thinkingLow",
-	medium: "thinkingMedium",
-	high: "thinkingHigh",
-	xhigh: "thinkingXhigh",
-	max: "thinkingMax",
-} as const satisfies Record<string, Parameters<Theme["fg"]>[0]>;
 
 export function formatElapsed(milliseconds: number): string {
 	const totalSeconds = Math.max(0, Math.floor(milliseconds / 1000));
@@ -26,116 +15,41 @@ export function formatElapsed(milliseconds: number): string {
 	return hours > 0 ? `${hours}:${clock}` : clock;
 }
 
-export function formatThinking(theme: Theme, level: string): string {
-	const color =
-		THINKING_FG[level as keyof typeof THINKING_FG] ?? ("muted" as const);
-	return theme.fg(color, level);
-}
-
-function requestThinkingLevel(payload: unknown, fallback: string): string {
-	const selected = `selected ${fallback}`;
-	if (!payload || typeof payload !== "object") return selected;
-	const request = payload as {
-		reasoning?: { effort?: unknown };
-		reasoning_effort?: unknown;
-		output_config?: { effort?: unknown };
-		thinking?: { type?: unknown; budget_tokens?: unknown };
-		config?: {
-			thinkingConfig?: { thinkingLevel?: unknown; thinkingBudget?: unknown };
-		};
-	};
-	if (request.thinking?.type === "disabled") return "off";
-	const google = request.config?.thinkingConfig;
-	const effort =
-		request.reasoning?.effort ??
-		request.reasoning_effort ??
-		request.output_config?.effort ??
-		google?.thinkingLevel;
-	if (typeof effort === "string") {
-		const level = effort.toLowerCase();
-		if (level === "none") return "off";
-		if (Object.hasOwn(THINKING_FG, level)) return level;
-	}
-	const budget = request.thinking?.budget_tokens ?? google?.thinkingBudget;
-	if (typeof budget === "number" && Number.isFinite(budget)) {
-		if (budget === 0) return "off";
-		if (budget === -1) return "adaptive";
-		if (budget > 0) return `budget ${budget}`;
-	}
-	return selected;
-}
-
 export default function workingTimer(pi: ExtensionAPI): void {
 	let startedAt: number | undefined;
-	let requestThinking: string | undefined;
-	let timer: ReturnType<typeof setInterval> | undefined;
-	let currentCtx: ExtensionContext | undefined;
-
-	const stopTimer = () => {
-		if (timer) clearInterval(timer);
-		timer = undefined;
-	};
-
-	const refresh = () => {
-		if (!currentCtx || startedAt === undefined) return;
-		const elapsed = formatElapsed(Date.now() - startedAt);
-		const thinking = formatThinking(
-			currentCtx.ui.theme,
-			requestThinking ?? "pending",
-		);
-		currentCtx.ui.setWorkingMessage(`Working... ${elapsed} · ${thinking}`);
-	};
+	let lastElapsed: number | undefined;
 
 	pi.on("session_start", (_event, ctx) => {
-		stopTimer();
 		startedAt = undefined;
-		requestThinking = undefined;
-		currentCtx = ctx;
+		lastElapsed = undefined;
+		// Clear status left by older versions of this extension after /reload.
 		ctx.ui.setStatus(STATUS_KEY, undefined);
 	});
 
-	pi.on("agent_start", (_event, ctx) => {
-		currentCtx = ctx;
-		if (startedAt === undefined) {
-			startedAt = Date.now();
-			requestThinking = `selected ${ctx.thinkingLevel ?? pi.getThinkingLevel()}`;
-		}
-		ctx.ui.setStatus(STATUS_KEY, undefined);
-		refresh();
-		if (!timer) timer = setInterval(refresh, 1000);
+	pi.on("agent_start", () => {
+		if (startedAt === undefined) startedAt = Date.now();
 	});
 
-	// Latch at dispatch; editor changes must not relabel an in-flight request.
-	pi.on("before_provider_request", (event, ctx) => {
+	pi.on("agent_settled", () => {
 		if (startedAt === undefined) return;
-		requestThinking = requestThinkingLevel(
-			event.payload,
-			ctx.thinkingLevel ?? pi.getThinkingLevel(),
-		);
-		currentCtx = ctx;
-		refresh();
-	});
-
-	pi.on("thinking_level_select", (_event, ctx) => {
-		currentCtx = ctx;
-		refresh();
-	});
-
-	pi.on("agent_settled", (_event, ctx) => {
-		if (startedAt === undefined) return;
-		const elapsed = formatElapsed(Date.now() - startedAt);
-		stopTimer();
+		lastElapsed = Date.now() - startedAt;
 		startedAt = undefined;
-		requestThinking = undefined;
-		currentCtx = ctx;
-		ctx.ui.setWorkingMessage();
-		ctx.ui.setStatus(STATUS_KEY, ctx.ui.theme.fg("dim", `last ${elapsed}`));
 	});
 
 	pi.on("session_shutdown", () => {
-		stopTimer();
 		startedAt = undefined;
-		requestThinking = undefined;
-		currentCtx = undefined;
+	});
+
+	pi.registerCommand("timing", {
+		description: "Show current or most recent main-agent run time",
+		handler: async (_args: string, ctx: ExtensionContext) => {
+			const message =
+				startedAt !== undefined
+					? `Working for ${formatElapsed(Date.now() - startedAt)}`
+					: lastElapsed !== undefined
+						? `Last run ${formatElapsed(lastElapsed)}`
+						: "No run timing yet";
+			if (ctx.hasUI) ctx.ui.notify(message, "info");
+		},
 	});
 }

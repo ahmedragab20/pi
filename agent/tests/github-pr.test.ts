@@ -390,6 +390,7 @@ describe("compact footer × github-pr integration", () => {
 			cwd: "/Users/test/.pi",
 			model: { id: "gpt-test" },
 			getContextUsage: () => ({ percent: 7.3 }),
+			sessionManager: { getEntries: () => [] },
 			ui: {
 				setFooter(factory: unknown) {
 					footerFactory = factory;
@@ -421,7 +422,9 @@ describe("compact footer × github-pr integration", () => {
 			]),
 		);
 		const line = footer.render(200)[0];
-		expect(line).toBe(".pi (feature) · PR #42 · 7.3% · gpt-test · fast");
+		expect(line).toBe(
+			".pi (feature) · PR #42 · ctx 7.3% · cache — · gpt-test",
+		);
 		expect(line.split("PR #42").length - 1).toBe(1);
 		footer.dispose();
 	});
@@ -429,7 +432,7 @@ describe("compact footer × github-pr integration", () => {
 	test("missing PR status leaves the footer layout without a PR segment", () => {
 		const { footer } = makeFooter(new Map([["fast-mode", "fast"]]));
 		const line = footer.render(200)[0];
-		expect(line).toBe(".pi (feature) · 7.3% · gpt-test · fast");
+		expect(line).toBe(".pi (feature) · ctx 7.3% · cache — · gpt-test");
 		expect(line.includes("PR #")).toBe(false);
 		footer.dispose();
 	});

@@ -175,36 +175,34 @@ export default function (pi: ExtensionAPI) {
 		const list = cloneTodos(todos);
 		const agents = [...activeAgents.values()];
 		ctx.ui.setWidget(TODO_WIDGET, (_tui, theme) => {
-			const lines: string[] = [];
-
-			if (list.length > 0) {
-				const done = list.filter((todo) => todo.done).length;
-				const next = list.find((todo) => !todo.done);
-				const label = theme.fg("accent", "Tasks");
-				const count = theme.fg("muted", `${done}/${list.length}`);
-				const detail = next
-					? `${theme.fg("dim", "next")} ${theme.fg("accent", `#${next.id}`)} ${theme.fg("text", next.text)}`
-					: theme.fg("success", "complete");
-				lines.push(
-					`${label} ${count} ${theme.fg("dim", "·")} ${detail} ${theme.fg("dim", "· /todos")}`,
-				);
-			}
-
+			const parts: string[] = [];
 			if (agents.length > 0) {
 				const running = agents.filter((state) => state === "running").length;
 				const queued = agents.length - running;
-				const counts = [
-					running > 0 ? `${running} running` : undefined,
-					queued > 0 ? `${queued} queued` : undefined,
-				].filter((part): part is string => part !== undefined);
-				lines.push(
-					`${theme.fg("accent", "Agents")} ${theme.fg("muted", counts.join(" · "))} ${theme.fg("dim", "· /agents")}`,
-				);
+				if (running > 0) {
+					parts.push(
+						theme.fg(
+							"accent",
+							`${running} agent${running === 1 ? "" : "s"} running`,
+						),
+					);
+				}
+				if (queued > 0) {
+					parts.push(
+						theme.fg(
+							"muted",
+							`${queued} agent${queued === 1 ? "" : "s"} queued`,
+						),
+					);
+				}
 			}
-
+			if (list.length > 0) {
+				const done = list.filter((todo) => todo.done).length;
+				parts.push(theme.fg("muted", `tasks ${done}/${list.length}`));
+			}
+			const line = parts.join(theme.fg("dim", " · "));
 			return {
-				render: (width: number) =>
-					lines.map((line) => truncateToWidth(line, width)),
+				render: (width: number) => [truncateToWidth(line, width)],
 				invalidate: () => {},
 			};
 		});

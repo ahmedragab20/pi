@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import compactFooterExtension, {
 	formatGitStatus,
+	latestCacheHitPercent,
 } from "../extensions/compact-footer.ts";
 import todoExtension from "../extensions/todo.ts";
 
@@ -68,7 +69,7 @@ function makeTodoCtx(widgets: Map<string, unknown>) {
 }
 
 describe("todo/agent widget (balanced compact UI)", () => {
-	test("renders one task line, tracks agent lifecycle, and drops settled agents", async () => {
+	test("renders one combined activity line and drops settled agents", async () => {
 		const { pi, handlers, tools, emit } = makePi();
 		todoExtension(pi as never);
 		const widgets = new Map<string, unknown>();
@@ -94,30 +95,24 @@ describe("todo/agent widget (balanced compact UI)", () => {
 		) => { render: (width: number) => string[] };
 		expect(typeof factory).toBe("function");
 		let lines = factory(undefined, plainTheme).render(200);
-		const taskLine = lines.find((l) => l.includes("Tasks 0/1"));
-		expect(taskLine).toBeDefined();
-		expect(taskLine).toContain("next #1 Inspect workspace");
-		expect(taskLine).toContain("/todos");
+		expect(lines).toEqual(["tasks 0/1"]);
+		expect(lines[0]).not.toContain("Inspect workspace");
 
 		emit("subagents:started", { id: "a1" });
 		factory = widgets.get("todos") as typeof factory;
 		lines = factory(undefined, plainTheme).render(200);
-		const agentLine = lines[1];
-		expect(agentLine).toContain("Agents 1 running");
-		expect(agentLine).toContain("/agents");
+		expect(lines).toEqual(["1 agent running · tasks 0/1"]);
 
 		// created after started must not downgrade running -> queued
 		emit("subagents:created", { id: "a1" });
 		factory = widgets.get("todos") as typeof factory;
 		lines = factory(undefined, plainTheme).render(200);
-		expect(lines[1]).toContain("Agents 1 running");
-		expect(lines[1]).not.toContain("queued");
+		expect(lines).toEqual(["1 agent running · tasks 0/1"]);
 
 		emit("subagents:completed", { id: "a1" });
 		factory = widgets.get("todos") as typeof factory;
 		lines = factory(undefined, plainTheme).render(200);
-		expect(lines.some((l) => l.includes("Agents"))).toBe(false);
-		expect(lines.some((l) => l.includes("Tasks 0/1"))).toBe(true);
+		expect(lines).toEqual(["tasks 0/1"]);
 	});
 });
 
@@ -130,6 +125,22 @@ describe("compact footer", () => {
 		expect(formatGitStatus("R  renamed.ts\0old.ts\0 M next.ts\0")).toBe("+1 ~1");
 	});
 
+	test("computes latest usable request cache percentage", () => {
+		const assistant = (input: number, cacheRead: number, cacheWrite: number) => ({
+			type: "message",
+			message: {
+				role: "assistant",
+				usage: { input, cacheRead, cacheWrite },
+			},
+		});
+		expect(latestCacheHitPercent([])).toBeUndefined();
+		expect(latestCacheHitPercent([assistant(20, 80, 0)])).toBe(80);
+		expect(latestCacheHitPercent([assistant(100, 0, 0)])).toBe(0);
+		expect(
+			latestCacheHitPercent([assistant(20, 80, 0), assistant(0, 0, 0)]),
+		).toBe(80);
+	});
+
 	test("renders a single balanced line and wires branch subscription as dispose", () => {
 		const { pi, handlers } = makePi();
 		compactFooterExtension(pi as never);
@@ -140,6 +151,17 @@ describe("compact footer", () => {
 			cwd: "/Users/test/.pi",
 			model: { id: "gpt-test" },
 			getContextUsage: () => ({ percent: 7.3 }),
+			sessionManager: {
+				getEntries: () => [
+					{
+						type: "message",
+						message: {
+							role: "assistant",
+							usage: { input: 20, cacheRead: 80, cacheWrite: 0 },
+						},
+					},
+				],
+			},
 			ui: {
 				setFooter(factory: unknown) {
 					footerFactory = factory;
@@ -162,8 +184,9 @@ describe("compact footer", () => {
 				new Map<string, string>([
 					["subagents", "1 running agent"],
 					["pi-lens-lsp", "LSP Active: typescript"],
-					["diffing", "diffing: no server"],
+					["diffing", "diffing: reviewing"],
 					["fast-mode", "fast"],
+					["build-warning", "blocked: tests failing"],
 				]),
 		};
 
@@ -178,7 +201,9 @@ describe("compact footer", () => {
 
 		const lines = footer.render(200);
 		expect(lines).toHaveLength(1);
-		expect(lines[0]).toBe(".pi (main) · 7.3% · gpt-test · fast");
+		expect(lines[0]).toBe(
+			".pi (main) · ctx 7.3% · cache 80.0% · gpt-test · blocked: tests failing",
+		);
 
 		footer.dispose();
 		expect(unsubscribed).toBe(true);

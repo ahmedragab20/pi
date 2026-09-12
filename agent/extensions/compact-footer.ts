@@ -8,18 +8,58 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import { truncateToWidth, type TUI } from "@earendil-works/pi-tui";
 
-function formatContext(
-	ctx: ExtensionContext,
-	theme: Theme,
-): string | undefined {
+function formatContext(ctx: ExtensionContext, theme: Theme): string {
 	const percent = ctx.getContextUsage()?.percent;
-	if (percent === null || percent === undefined) return undefined;
+	if (percent === null || percent === undefined)
+		return theme.fg("dim", "ctx —");
 	const value =
 		percent < 10 ? percent.toFixed(1) : Math.round(percent).toString();
 	let color: "error" | "warning" | "muted" = "muted";
 	if (percent >= 90) color = "error";
 	else if (percent >= 70) color = "warning";
-	return theme.fg(color, `${value}%`);
+	return theme.fg(color, `ctx ${value}%`);
+}
+
+function usageValue(value: unknown): number {
+	return typeof value === "number" && Number.isFinite(value) && value >= 0
+		? value
+		: 0;
+}
+
+export function latestCacheHitPercent(
+	entries: readonly unknown[],
+): number | undefined {
+	for (let index = entries.length - 1; index >= 0; index--) {
+		const entry = entries[index];
+		if (!entry || typeof entry !== "object") continue;
+		const candidate = entry as {
+			type?: unknown;
+			message?: { role?: unknown; usage?: unknown };
+		};
+		if (candidate.type !== "message" || candidate.message?.role !== "assistant")
+			continue;
+		const usage = candidate.message.usage;
+		if (!usage || typeof usage !== "object") continue;
+		const values = usage as {
+			input?: unknown;
+			cacheRead?: unknown;
+			cacheWrite?: unknown;
+		};
+		const input = usageValue(values.input);
+		const cacheRead = usageValue(values.cacheRead);
+		const cacheWrite = usageValue(values.cacheWrite);
+		const promptTokens = input + cacheRead + cacheWrite;
+		if (promptTokens > 0) return (cacheRead / promptTokens) * 100;
+	}
+	return undefined;
+}
+
+function formatCache(ctx: ExtensionContext, theme: Theme): string {
+	const percent = latestCacheHitPercent(ctx.sessionManager.getEntries());
+	return theme.fg(
+		percent === undefined ? "dim" : "muted",
+		percent === undefined ? "cache —" : `cache ${percent.toFixed(1)}%`,
+	);
 }
 
 function formatGitState(
@@ -31,21 +71,22 @@ function formatGitState(
 	return theme.fg(color, gitStatus);
 }
 
-function compactStatuses(
-	statuses: ReadonlyMap<string, string>,
-	theme: Theme,
-): string[] {
-	const compact: string[] = [];
+const INFORMATIONAL_STATUS_KEYS = new Set([
+	"btw",
+	"diffing",
+	"fast-mode",
+	"github-pr",
+	"pi-lens-lsp",
+	"subagents",
+	"working-timer",
+]);
+
+function actionableStatuses(statuses: ReadonlyMap<string, string>): string[] {
+	const actionable: string[] = [];
 	for (const [key, text] of statuses) {
-		if (key === "subagents" || key === "pi-lens-lsp" || key === "github-pr")
-			continue;
-		if (key === "diffing") {
-			if (!text.includes("no server")) compact.push(theme.fg("accent", "diffing"));
-			continue;
-		}
-		compact.push(text);
+		if (!INFORMATIONAL_STATUS_KEYS.has(key)) actionable.push(text);
 	}
-	return compact;
+	return actionable;
 }
 
 export function formatGitStatus(output: string): string {
@@ -187,8 +228,9 @@ function renderFooter({
 		pr ? theme.fg("accent", pr) : undefined,
 		formatGitState(gitStatus, theme),
 		formatContext(ctx, theme),
+		formatCache(ctx, theme),
 		ctx.model?.id ? theme.fg("muted", ctx.model.id) : undefined,
-		...compactStatuses(statuses, theme),
+		...actionableStatuses(statuses),
 	].filter((part): part is string => part !== undefined);
 	const separator = theme.fg("dim", " · ");
 	return [truncateToWidth(parts.join(separator), width)];

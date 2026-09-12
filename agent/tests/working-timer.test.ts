@@ -1,7 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import workingTimerExtension, {
 	formatElapsed,
-	formatThinking,
 } from "../extensions/working-timer.ts";
 
 type EventHandler = (
@@ -9,28 +8,25 @@ type EventHandler = (
 	ctx: unknown,
 ) => unknown | Promise<unknown>;
 
-const plainTheme = {
-	fg: (_color: string, text: string) => text,
-	bold: (text: string) => text,
-};
-
 function makePi() {
 	const handlers = new Map<string, EventHandler[]>();
-	let thinkingLevel = "low";
+	let command:
+		| { handler: (args: string, ctx: unknown) => Promise<void> }
+		| undefined;
 	const pi = {
 		on(name: string, handler: EventHandler) {
 			const list = handlers.get(name) ?? [];
 			list.push(handler);
 			handlers.set(name, list);
 		},
-		getThinkingLevel() {
-			return thinkingLevel;
-		},
-		setThinkingLevel(level: string) {
-			thinkingLevel = level;
+		registerCommand(
+			_name: string,
+			definition: { handler: (args: string, ctx: unknown) => Promise<void> },
+		) {
+			command = definition;
 		},
 	};
-	return { pi, handlers };
+	return { pi, handlers, getCommand: () => command };
 }
 
 describe("working timer", () => {
@@ -40,123 +36,45 @@ describe("working timer", () => {
 		expect(formatElapsed(3_723_000)).toBe("1:02:03");
 	});
 
-	test("formatThinking colors known levels and falls back", () => {
-		expect(formatThinking(plainTheme as never, "high")).toBe("high");
-		expect(formatThinking(plainTheme as never, "weird")).toBe("weird");
-	});
-
-	test("shows elapsed and thinking while working, duration on settle", async () => {
-		const { pi, handlers } = makePi();
+	test("keeps timing off persistent chrome and exposes it through /timing", async () => {
+		const { pi, handlers, getCommand } = makePi();
 		workingTimerExtension(pi as never);
 
-		const workingMessages: (string | undefined)[] = [];
 		const statuses = new Map<string, string | undefined>();
+		const notices: string[] = [];
 		const ctx = {
 			hasUI: true,
 			ui: {
-				setWorkingMessage(message?: string) {
-					workingMessages.push(message);
-				},
 				setStatus(key: string, text?: string) {
 					statuses.set(key, text);
 				},
-				theme: plainTheme,
+				notify(message: string) {
+					notices.push(message);
+				},
 			},
 		};
 
-		let now = 0;
+		let now = 1_000;
 		const realNow = Date.now;
-		const realSetInterval = globalThis.setInterval;
-		const realClearInterval = globalThis.clearInterval;
-		let intervalCb: (() => void) | undefined;
-		let intervalCleared = false;
 		try {
 			Date.now = () => now;
-			(globalThis as Record<string, unknown>).setInterval = (cb: () => void) => {
-				intervalCb = cb;
-				return 123 as unknown as ReturnType<typeof setInterval>;
-			};
-			(globalThis as Record<string, unknown>).clearInterval = () => {
-				intervalCleared = true;
-			};
+			await handlers.get("session_start")![0]({}, ctx);
+			expect(statuses.get("working-timer")).toBeUndefined();
 
-			handlers.get("session_start")![0]({}, ctx);
-			now = 1_000;
+			await getCommand()!.handler("", ctx);
+			expect(notices.at(-1)).toBe("No run timing yet");
+
 			await handlers.get("agent_start")![0]({}, ctx);
-			expect(workingMessages.at(-1)).toBe("Working... 00:00 · selected low");
-
-			await handlers.get("before_provider_request")![0](
-				{ payload: { reasoning: { effort: "low" } } },
-				ctx,
-			);
-			expect(workingMessages.at(-1)).toBe("Working... 00:00 · low");
-
 			now += 65_000;
-			intervalCb!();
-			expect(workingMessages.at(-1)).toBe("Working... 01:05 · low");
-
-			// Editor switches to high, but the provider said low — display stays low.
-			pi.setThinkingLevel("high");
-			await handlers.get("thinking_level_select")![0]({}, ctx);
-			expect(workingMessages.at(-1)).toBe("Working... 01:05 · low");
-			intervalCb!();
-			expect(workingMessages.at(-1)).toBe("Working... 01:05 · low");
-
-			// Provider now reports high — display follows the payload.
-			await handlers.get("before_provider_request")![0](
-				{ payload: { reasoning: { effort: "high" } } },
-				ctx,
-			);
-			expect(workingMessages.at(-1)).toBe("Working... 01:05 · high");
-			intervalCb!();
-			expect(workingMessages.at(-1)).toBe("Working... 01:05 · high");
-
-			await handlers.get("before_provider_request")![0](
-				{
-					payload: {
-						thinking: { type: "adaptive" },
-						output_config: { effort: "medium" },
-					},
-				},
-				ctx,
-			);
-			expect(workingMessages.at(-1)).toBe("Working... 01:05 · medium");
-
-			await handlers.get("before_provider_request")![0](
-				{ payload: { config: { thinkingConfig: { thinkingLevel: "LOW" } } } },
-				ctx,
-			);
-			expect(workingMessages.at(-1)).toBe("Working... 01:05 · low");
-
-			await handlers.get("before_provider_request")![0](
-				{ payload: { thinking: { type: "enabled", budget_tokens: 4096 } } },
-				ctx,
-			);
-			expect(workingMessages.at(-1)).toBe("Working... 01:05 · budget 4096");
-
-			await handlers.get("before_provider_request")![0]({ payload: { unknown: true } }, ctx);
-			expect(workingMessages.at(-1)).toBe("Working... 01:05 · selected high");
-
-			// reasoning_effort payload (flat key) overrides the editor's high.
-			await handlers.get("before_provider_request")![0](
-				{ payload: { reasoning_effort: "medium" } },
-				ctx,
-			);
-			expect(workingMessages.at(-1)).toBe("Working... 01:05 · medium");
+			await getCommand()!.handler("", ctx);
+			expect(notices.at(-1)).toBe("Working for 01:05");
 
 			await handlers.get("agent_settled")![0]({}, ctx);
-			expect(workingMessages.at(-1)).toBeUndefined();
-			expect(statuses.get("working-timer")).toBe("last 01:05");
-			expect(intervalCleared).toBe(true);
-
-			intervalCleared = false;
-			await handlers.get("agent_start")![0]({}, ctx);
-			handlers.get("session_shutdown")![0]({}, ctx);
-			expect(intervalCleared).toBe(true);
+			await getCommand()!.handler("", ctx);
+			expect(notices.at(-1)).toBe("Last run 01:05");
+			expect([...statuses.entries()]).toEqual([["working-timer", undefined]]);
 		} finally {
 			Date.now = realNow;
-			globalThis.setInterval = realSetInterval;
-			globalThis.clearInterval = realClearInterval;
 		}
 	});
 });
