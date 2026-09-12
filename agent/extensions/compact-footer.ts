@@ -10,8 +10,7 @@ import { truncateToWidth, type TUI } from "@earendil-works/pi-tui";
 
 function formatContext(ctx: ExtensionContext, theme: Theme): string {
 	const percent = ctx.getContextUsage()?.percent;
-	if (percent === null || percent === undefined)
-		return theme.fg("dim", "ctx —");
+	if (percent === null || percent === undefined) return theme.fg("dim", "ctx —");
 	const value =
 		percent < 10 ? percent.toFixed(1) : Math.round(percent).toString();
 	let color: "error" | "warning" | "muted" = "muted";
@@ -230,6 +229,7 @@ function renderFooter({
 		formatContext(ctx, theme),
 		formatCache(ctx, theme),
 		ctx.model?.id ? theme.fg("muted", ctx.model.id) : undefined,
+		statuses.get("fast-mode"),
 		...actionableStatuses(statuses),
 	].filter((part): part is string => part !== undefined);
 	const separator = theme.fg("dim", " · ");

@@ -202,7 +202,12 @@ describe("compact footer", () => {
 		const lines = footer.render(200);
 		expect(lines).toHaveLength(1);
 		expect(lines[0]).toBe(
-			".pi (main) · ctx 7.3% · cache 80.0% · gpt-test · blocked: tests failing",
+			".pi (main) · ctx 7.3% · cache 80.0% · gpt-test · fast · blocked: tests failing",
+		);
+
+		footerData.getExtensionStatuses = () => new Map();
+		expect(footer.render(200)[0]).toBe(
+			".pi (main) · ctx 7.3% · cache 80.0% · gpt-test",
 		);
 
 		footer.dispose();
