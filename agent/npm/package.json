@@ -12,6 +12,7 @@
     "@juicesharp/rpiv-ask-user-question": "^2.9.0",
     "pi-intercom": "^0.13.0",
     "pi-lens": "^4.1.6",
+    "pi-mcp-adapter": "^2.33.0",
     "pi-tool-repair": "^0.2.5",
     "pi-vim": "^0.14.2"
   },

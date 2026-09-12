@@ -42,3 +42,5 @@ pi-acp
 
 agent/extensions/browser/node_modules/
 agent/browser-artifacts/
+agent/backups/
+node_modules/
