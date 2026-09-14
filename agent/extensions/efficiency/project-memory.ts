@@ -169,8 +169,8 @@ export function registerProjectMemory(pi: ExtensionAPI): void {
 					[
 						`Memory file: ${path} (keep it ≤${MEMORY_MAX_BYTES} bytes)`,
 						"",
-						"Spawn the memory worker with this brief:",
-						'Agent({ subagent_type: "memory", description: "refresh project memory", prompt:',
+						"For a substantial refresh, use the optional worker with this brief:",
+						'Agent({ subagent_type: "worker", description: "refresh project memory", prompt:',
 						`  "Refresh the memory file at ${path}. Read it first and merge — don't rewrite from scratch. Keep it ≤${MEMORY_MAX_BYTES} bytes (verify with wc -c). Return: file path + what changed + anything you could not verify." })`,
 					].join("\n"),
 					"info",

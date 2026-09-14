@@ -1,62 +1,31 @@
 ---
 name: harness-diff-read
-description: Read working-tree, PR, or commit diffs with scoped inspect APIs. Use when summarizing changes, preparing /review, or compressing a large patch. Prefer inspect over dumping git diff into diff-reader.
+description: Read scoped working-tree, PR, or commit diffs when reviewing or summarizing changes.
 ---
 
 # Read diffs scoped
 
-Stop at the first step that yields enough evidence. Never paste the whole tree into a worker because inspect felt slow.
+Confirm the review session belongs to the current repository. Prefer registered diffing
+tools or `diffing inspect` from this checkout; do not use a client bound to another repo.
+Start with a summary, then inspect the relevant paths:
 
-The `diffing` MCP may be bound to a **different repo** (the product checkout). Prefer `diffing inspect` from this cwd, or the `diffing_*` extension tools. Do not use MCP `diff_files`/`diff_slice` unless `review_session_status` reports this consumer repo.
-
-Carry `generation` from `summary` into later calls. On stale generation (HTTP 409), re-run `summary` and restart that traversal.
-
-## Inspect (step 1)
-
-```
-diffing inspect summary [--exclude lockfiles]
-diffing inspect files   [--path GLOB] [--cursor N] [--limit N]
-diffing inspect hunks   (--file N | --path GLOB) …
-diffing inspect slice   (--file N | --path GLOB) [--max-lines N] [--max-bytes N]
-diffing inspect search  <text> [--path GLOB]
+```text
+diffing inspect summary
+diffing inspect files --path GLOB --cursor N --limit N
+diffing inspect hunks --path PATH
+diffing inspect slice --path PATH --max-lines N --max-bytes N
+diffing inspect search TEXT --path GLOB
 ```
 
-- Scope with `--path` (`agent/extensions/**`, `**/foo.ts`, exact file). Filtered `nextCursor` indexes the **filtered** list; each row still has the global `file` index.
-- `slice` / `hunks`: `--path` XOR `--file`. Path must resolve to exactly one file.
-- `summary` may include `directories` buckets. `--exclude lockfiles` (MCP `exclude: ["lockfiles"]`) drops lock/generated basenames from **counts only**.
-- Same contract on MCP when the session is this repo: `diff_summary`, `diff_files`/`diff_hunks`/`diff_slice`/`diff_search` with `path`.
+For hunks/slice, use `--path` or `--file`, not both; the path must identify one file.
+Carry the summary's generation when the API supports it; refresh on a stale generation.
+Follow pagination rather than assuming the first page is complete.
 
-## Unhelpful inspect → fall through (do not retry with a full dump)
+If there is no session, a path is missing, or scope is ignored, use
+`git diff -- <paths>` (and `--cached` for staged changes). Inspect relevant untracked
+files separately. Do not open a review UI merely to read a small diff.
 
-- No session / inspect exit 3
-- `--path` ignored (unfiltered `total`, or `slice --path A` returns a different file) — old review server; restart the session or fall through
-- Generation mismatch, `complete: false` with empty files, binary-only hits
-- Needed path is not in the session (untracked outside review scope)
-
-If a review is already the goal, `start_review_session` / `/review`. Otherwise do **not** block on the UI.
-
-## Path-scoped git (step 3)
-
-```
-git diff --stat -- <dir-or-files>
-git diff -- <dir-or-files>
-```
-
-Small diffs: the lead reads them. Large: step 4.
-
-## `Agent` `diff-reader` (step 4)
-
-Only with a **path-scoped** patch or an inspect slice already pulled. Never the whole tree. Worker is `tools: none` — it cannot call diffing.
-
-Brief shape:
-
-```
-Compress this scoped diff only.
-Return: Changed APIs; Risky files (path + why); Behavior changes; Migration notes.
-Scope: <paths>
-<diff or slice>
-```
-
-## Give up (step 5)
-
-If the scoped dump is still huge and the packet is weak, tell the user inspect/session is the right tool. Do not loop.
+Read small patches directly. For substantial bounded compression, optionally use the
+single worker with an exact scope and requested evidence. Verify its findings against
+the real changes. Stop when evidence is sufficient; do not repeat reads or dump the
+whole tree into a worker.

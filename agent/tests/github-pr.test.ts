@@ -423,8 +423,9 @@ describe("compact footer × github-pr integration", () => {
 		);
 		const line = footer.render(200)[0];
 		expect(line).toBe(
-			".pi (feature) · PR #42 · ctx 7.3% · cache — · gpt-test",
+			".pi (feature) · PR #42 · ctx 7.3% · cache — · gpt-test · fast",
 		);
+		expect(line.split("fast").length - 1).toBe(1);
 		expect(line.split("PR #42").length - 1).toBe(1);
 		footer.dispose();
 	});
@@ -432,7 +433,17 @@ describe("compact footer × github-pr integration", () => {
 	test("missing PR status leaves the footer layout without a PR segment", () => {
 		const { footer } = makeFooter(new Map([["fast-mode", "fast"]]));
 		const line = footer.render(200)[0];
+		expect(line).toBe(".pi (feature) · ctx 7.3% · cache — · gpt-test · fast");
+		expect(line.includes("PR #")).toBe(false);
+		expect(line.split("fast").length - 1).toBe(1);
+		footer.dispose();
+	});
+
+	test("empty statuses omit both fast and PR", () => {
+		const { footer } = makeFooter(new Map());
+		const line = footer.render(200)[0];
 		expect(line).toBe(".pi (feature) · ctx 7.3% · cache — · gpt-test");
+		expect(line.includes("fast")).toBe(false);
 		expect(line.includes("PR #")).toBe(false);
 		footer.dispose();
 	});

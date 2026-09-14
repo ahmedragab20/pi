@@ -37,12 +37,28 @@
     "openai-codex/gpt-5.6-sol",
     "openai-codex/gpt-5.6-sol-1m"
   ],
+  "extensions": [
+    "-extensions/context-efficiency.ts",
+    "-extensions/worker-model.ts"
+  ],
   "packages": [
-    "npm:pi-tool-repair",
+    {
+      "source": "npm:pi-tool-repair",
+      "extensions": [],
+      "skills": [],
+      "prompts": [],
+      "themes": []
+    },
     "npm:@juicesharp/rpiv-ask-user-question",
     "npm:pi-vim",
     "npm:pi-lens",
-    "npm:pi-intercom",
+    {
+      "source": "npm:pi-intercom",
+      "extensions": [],
+      "skills": [],
+      "prompts": [],
+      "themes": []
+    },
     "git:github.com/ahmedragab20/pi-subagents@fork-v0.19.0-inspector.2"
   ],
   "showHardwareCursor": false,

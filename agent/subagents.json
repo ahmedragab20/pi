@@ -2,7 +2,16 @@
   "disableDefaultAgents": true,
   "fallbackSubagent": "none",
   "workflowsEnabled": false,
+  "schedulingEnabled": false,
   "maxSubagentDepth": 1,
+  "maxConcurrent": 1,
+  "maxConcurrentForeground": 1,
+  "defaultMaxTurns": 40,
+  "graceTurns": 2,
+  "backgroundByDefault": true,
+  "strictAgentFiles": true,
+  "toolDescriptionMode": "compact",
+  "agentMentions": "off",
   "widgetMode": "off",
   "fleetView": false
 }

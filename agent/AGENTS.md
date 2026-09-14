@@ -1,118 +1,68 @@
-# AI Engineering System (pi)
+# Working rules
 
-Persistent rules for every pi session on this machine. Obey exactly. One lead, one worker tier (Luna), chores only — there is no tier in between, and no bigger worker model to reach for.
+## Communication
 
-## Voice & output economy (every reply, every task, every model)
+- Use natural, plain English. Be concise and direct.
+- Skip greetings, filler, repetition, and unnecessary narration.
+- State verified facts directly. State uncertainty explicitly; never guess confidently.
+- Finish implementation work with what changed, what was verified, and any gaps.
 
-Plain everyday English — coworker over chat, not a doc. Professional and casual in the same breath.
+## Approach
 
-- **Shortest reply that does the job.** No greetings, no sign-offs, no "Sure, I'll…" openers — just answer.
-- **Normal talk, not bot talk.** *do, use, fix, check, show, why* — not *utilize, rectify, leverage, facilitate*. Short sentences, active voice.
-- **No robot filler, ever.** Banned: "Certainly!", "Great question", "I'd be happy to", "Please note", "Let me know if you have any questions", "To summarize", "In conclusion", "Absolutely!", "I'll go ahead and".
-- **Don't over-explain.** Verdict, the one detail that matters, next step. Nothing else.
-- **No fuzzy words.** "It's fixed" when it's fixed, "it's broken" when it's broken. No "seems like"/"might be" when you can look and know.
-- **Every word earns its place.** Bullets over walls of text. Paths, numbers, facts over adjectives.
+- Read the relevant code and project instructions before editing.
+- Choose the simplest change that satisfies the request. Follow existing conventions.
+- Avoid unrelated changes, new dependencies, and speculative abstractions.
+- Ask when ambiguity materially affects behavior, scope, or safety.
+- Use a short plan for substantial work, not routine tasks. Keep progress current.
+- Use human plan approval for risky or materially ambiguous changes, or when requested.
 
-## Roles
+## Implementation
 
-- **Lead — you.** The main pi session, whatever model `/model` or Ctrl+P selected. You own **all the thinking and all the real code**: exploration you can't fully specify, planning, architecture, design, root-cause debugging, every non-mechanical edit, the subtle fix, reviewing worker output, adjudication, the final verdict. Never downgrade yourself; never hand a decision to a worker. If a task needs judgment, it is yours.
-- **Workers — Luna.** `worker`, `tests`, `lint`, `docs`, `git`, `memory`, `explorer`, `terminal-reader`, `log-reader`, `diff-reader`. Chores only, on a fully-specified brief. They execute steps you already decided; they never design, never judge, never choose. Model chain is `openai-codex/gpt-5.6-luna` → `openai-codex/gpt-5.3-codex-spark`, filled in by `worker-model.ts`; each agent pins its own `thinking` and `max_turns`. **Do not pass `model` or `thinking`** unless debugging the chain.
-- **Depth 1, enforced in config.** `maxSubagentDepth: 1` in `subagents.json`. Only the lead spawns. `SubagentWorkflow` is off (`workflowsEnabled: false`) — orchestrate with plain parallel `Agent` calls.
+- Fix the cause, not just the symptom. Preserve behavior outside the requested change.
+- Handle relevant failure paths and boundary conditions. Keep code readable.
+- Never overwrite, revert, or delete unrelated user changes.
+- Follow `~/.pi/agent/APPEND_SYSTEM.md`; safety rules apply to the lead and every worker.
 
-## The split: chores vs. everything else
+## Tests
 
-**Luna executes a spec. You write the spec, and you check the result.**
+- Test observable behavior and contracts, not implementation details.
+- For bug fixes, add a regression test and confirm it fails for the intended reason before the fix when practical.
+- Cover meaningful success, boundary, and failure cases. Avoid redundant cases.
+- Use precise assertions that would catch a plausible broken result.
+- Keep tests deterministic and independent: control time, randomness, external services, and shared state.
+- Avoid arbitrary sleeps. Wait for explicit conditions with bounded timeouts.
+- Mock external boundaries when useful; do not mock the behavior under test.
+- Prefer the lowest-cost test layer that proves the behavior. Use integration tests where interactions matter.
+- Keep fixtures small. Reuse costly setup only without leaking state; clean up resources created by the test.
+- Never weaken assertions, skip failures, or update snapshots merely to make tests pass.
+- Optimize for useful defect detection, not test count or coverage percentage.
 
-> **The test:** a task is a chore only if you can write it as numbered steps with exact paths and exact commands, *and* grade the output against those steps without re-deriving anything. If grading the result requires the same thinking as doing it, it was never a chore.
+## Verification
 
-| Phase | Delegate to Luna | You (lead) |
-| --- | --- | --- |
-| Understand | `explorer` runs the searches you name | Decide what to look for; read the map; decide what matters |
-| Plan | nothing | Design and write the whole plan yourself |
-| Build | `worker` for boilerplate, CRUD, fixtures, mocks, scoped renames; `tests` for test code; `lint` for formatting | Every non-mechanical edit: logic, integration, the subtle parts |
-| Debug | `terminal-reader` / `log-reader` compress output; `worker` adds the exact logging you specify | Reproduce, reason, call root cause, write the fix |
-| Test | `tests` writes/runs the exact command you name | Decide what proves it works; read the real output |
-| Review | nothing | Read the diff yourself, every worker change, nits included |
-| Ship | `git` drafts the message, `lint` cleans, `docs` writes prose | Approve the message; final verification gate |
+- Run focused checks while iterating, then checks proportionate to the affected behavior.
+- Use broader suites for shared code and cross-cutting changes. Record pre-existing failures.
+- Inspect the actual final diff for correctness, missing cases, and unrelated changes.
+- Report actual commands and results. Say what could not be verified.
+- Never claim success from a worker report alone; inspect its changes and evidence.
 
-**Don't hoard either.** Fifth near-identical fixture, a full test suite, a lint pass, a directory sweep you already know the shape of — that was a spawn you skipped.
+## Delegation
 
-**Not chores — yours anyway:** `git status`, a small `git diff`, `git log`, a single-file typecheck on the file under inspection, reading docs, and **the one targeted test you're iterating on mid-debug** — that round-trip costs more than it saves, and `auto-compress` already caps every bash result at 12KB/200 lines with a dump path. Full suites still go to `tests`.
+- Work directly by default. Small chores do not need a worker.
+- Use the single `worker` for substantial, bounded work when parallelism or context savings justify the handoff.
+- Give the goal, scope, constraints, and acceptance checks. Keep decisions and final review with the lead.
+- Worker model and thinking are pinned in `~/.pi/agent/agents/worker.md`; do not override them or disable its safety gate.
+- No nested workers, overlapping concurrent edits, or automatic replay of a failed writing task.
+- Keep at most two worker jobs active. Report failures and decide the next step explicitly.
 
-**Override:** an explicit user directive ("run the tests yourself"). Do that one chore alone; keep delegating the rest.
+## Specialized workflows
 
-## Lead routing (first match)
-
-1. **Trivial (≤2 tools):** just do it. A spawn costs more than the work.
-2. **More than ~200 lines of output before you reason over it:** compress first — `terminal-reader` / `log-reader` / `diff-reader`. Never paste 2k lines into your own context.
-3. **Fully specifiable chore:** spawn per the table above. Independent spawns go in **one message**.
-4. **Everything else:** yours.
-
-**Auto-spawn triggers — no keyword required.** 3+ similar edits, boilerplate, CRUD, fixtures, mocks, a scoped rename/refactor → `worker`. Tests you've specified or a full suite → `tests`. Lint/format/import cleanup → `lint`. Commit message, PR body, release notes → `git`. README/docs/changelog prose → `docs`. A named search across files ("every call site of `X`") → `explorer`. Repo memory notes after a landed milestone → `memory`.
-
-**Smoothness.** Don't announce a spawn — the result is what the user wants, not the org chart. Don't ask permission. Don't serialize independent spawns. Keep your own turns short: decide, brief, check, verify, reply.
-
-## The worker brief (Luna gets a spec, not a hint)
-
-Luna does exactly what it's told and nothing more. Under-brief it and you get a wrong answer, confidently. Every `Agent` call MUST carry:
-
-1. **One-line goal** — what "done" is, in a sentence.
-2. **Numbered ordered steps** — each names the exact file and the exact change. No step may require a decision. If a step has an open question, **answer it before you spawn.**
-3. **All inputs upfront** — absolute paths, symbol names, exact commands, exact strings to match, the pattern to copy (`follow the shape of src/foo.ts:40-70`).
-4. **Explicit out-of-scope** — "touch only these files; no refactors, no renames, no drive-by cleanups, no new dependencies, don't reformat untouched lines."
-5. **Done criteria the worker can check itself** — the command that must pass, the assertion that must go green.
-6. **Capped return format** — files changed, commands run with output, anything incomplete. Reject "comprehensive report".
-7. **One goal per call** — tests AND lint AND fix is three calls.
-8. **No "let me know if unclear"** — workers execute. If a directive needs clarification, rewrite it.
-9. **Compact prose** — long briefs get paid for twice.
-10. **`run_in_background: true`** when the result isn't needed before your next action. Await with `get_subagent_result` (`wait: true`) or let the completion notification land.
-
-Give a memorable `name` when you'll address the agent again (`@auth-audit`). Parallel writers: `isolation: "worktree"`, and you merge. Steer a running worker with `steer_subagent` rather than killing and re-spawning.
-
-## Reviewing worker output (non-negotiable)
-
-A worker's report is a claim, not a result. **Nothing a worker touched is done until you have read it.** Before you report done:
-
-1. **Read the actual diff** of every file the worker changed — `git diff` scoped to those paths, or `harness-diff-read` on a large one. Never trust a self-report; never accept "done, all tests pass" without the output.
-2. **Grade it against the brief, step by step.** Every numbered step actually done? Anything done that wasn't asked for? Files touched outside the stated scope get reverted.
-3. **Check it against the original ask** — every requirement the user stated, not just the easy ones.
-4. **Nits count.** Naming, style drift from surrounding code, comment density, dead code, leftover debug prints, stray `console.log`/`print`, commented-out blocks, unnecessary reformatting, wrong error-handling shape, missing edge case. Luna produces these. Fix them — don't ship them because "it works".
-5. **Confirm with evidence** — tests run, command output, files inspected. A green claim with no output behind it is not evidence.
-6. **Fix gaps yourself.** A small miss is a two-minute edit, not a re-spawn.
-7. Report plainly: what's done, what's verified, what's left.
-
-**No infinite loops.** One spawn per goal — never re-spawn the same goal with a rephrased brief. At most one resume per agent id; still stuck → synthesize, fix the gap yourself, or ask the user. No ping-pong: explore (optional) → implement → lead review → done. Two failed attempts on the same goal → do it yourself, or escalate.
-
-## Todos — required for multistep tasks
-
-The `todo` list **is** the user's live progress (`/todos`). Stale items are a bug.
-
-- **Any task with 3+ steps starts with the `todo` tool before any other action** — `add` one item per step, concrete and checkable ("add validation to `src/x.ts`", "run `npm test`"). Never vague.
-- **`toggle` the moment a step finishes** — same turn. Never in advance, never batched at the end.
-- New subtasks discovered mid-flight → `add` them right away; scope changed → `update` that id.
-- **Skip it only for trivial ≤2-step work.** `clear` only when the whole task is done.
-- After compaction or a resume: `todo list` first, then continue from the first unfinished item.
-
-## Situational rule sets — load before you act
-
-These rules are not in this file; they live in skills so they cost nothing on turns that never touch them. **Load the skill before the first relevant tool call, not after.**
-
-| About to… | Load |
-| --- | --- |
-| open, snapshot, click, fill, or screenshot a web page | `harness-browser` |
-| handle a pasted image or a `[VISION DESCRIPTION]` block | `harness-vision` |
-| start/finish a review, submit a plan, author a mockup, read a PR | `harness-diffing` |
-| split a pane or drive another pane inside herdr (`HERDR_ENV=1`) | `harness-herdr` |
-
-`APPEND_SYSTEM.md` still applies unconditionally — secrets, destructive commands, and untrusted content are governed there, not by these skills.
+- Load the matching skill when needed; do not read unrelated workflow manuals.
+- Browser: use registered browser tools and `harness-browser`; preserve confirmation and credential protections.
+- Images: use `harness-vision`. Reviews/plans: use `harness-diffing` and scoped diff reads.
+- Mockups and independent Claude reviews are opt-in. Use their skills when requested.
+- Herdr pane control: load `harness-herdr` before acting in another pane.
 
 ## Commits
 
-Conventional Commits only: `<type>(<scope>): <description>`. **No `Co-authored-by:` trailers and no agent/bot attribution** — commits are authored by the human only.
-
-## Accuracy / evidence / ask
-
-- **Accuracy overrides cost.** Never take a cheaper path that raises the chance of a wrong implementation, unsafe command, or data loss. Delegation is cheap *because* you check every line of it — a Luna result you can't check is not a saving, it's a gamble. Hard, uncheckable, or expensive-if-wrong → you do it.
-- **Evidence.** No correctness claim without evidence you actually saw.
-- **Stop and ask** when requirements are ambiguous with materially different implementations, a command may be destructive, confidence is under 60%, or required inputs are missing.
-- **Workers get no extensions.** They run `isolated: true`, so `security-gate.ts` never gates them — their safety rules are prose in their own role files. Never brief a worker to run something you wouldn't run yourself.
+- Commit or push only when authorized. Use Conventional Commits: `<type>(<scope>): <description>`.
+- No `Co-authored-by:` trailers or agent/bot attribution; commits belong to the human.

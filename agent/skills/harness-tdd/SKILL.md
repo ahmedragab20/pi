@@ -1,12 +1,11 @@
 ---
 name: harness-tdd
-description: TDD bug loop for this pi harness. Use when writing a failing test, reproducing a bug, or running the lead ↔ tests worker loop.
+description: Lead-owned regression loop for debugging.
 ---
+# TDD bug loop
 
-# TDD bug loop (lead ↔ `tests`)
-
-Hypothesis → `Agent` `tests` writes ONE failing test + runs the exact command → lead judges → tighter test (deeper layer) or lead `edit`s the fix → `Agent` `tests` verifies.
-
-- The lead owns hypothesis, loop decisions, and the fix.
-- `tests` owns test code and execution only.
-- The lead never writes reproduction tests.
+The lead states a hypothesis, writes the smallest meaningful failing regression,
+confirms the intended failure, fixes the cause, then runs relevant broader checks.
+The single worker is optional; if used, it performs only a bounded,
+explicitly scoped supporting chore. The lead owns the hypothesis, loop decisions, fix,
+and review.

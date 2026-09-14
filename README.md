@@ -1,75 +1,53 @@
-# pi — Personal Config (Dotfiles for the Coding Agent Harness)
+# pi — Personal Config
 
-Personal configuration for [pi](https://pi.dev), the coding agent harness.
-This repo is the pi-native port of the opencode AI Engineering System
-(subagents + vision routing) merged with the Cursor leader/worker and
-diffing-first workflow — stored as a dotfiles-style git repo at `~/.pi`.
+This repository is the source of truth for pi’s global configuration under `agent/`.
+The default lead remains `openai-codex/gpt-6-astra` at low thinking. Normal work is
+lead-owned and direct; delegate only substantial, independent, bounded chores.
 
-**pi is the active harness.** Default lead: `openai-codex/gpt-6-astra` @ low.
+## Optional worker
 
-## Layout
+`agent/agents/worker.md` pins `openai-codex/gpt-5.6-luna` at medium thinking,
+40 turns plus two wrap-up turns. No nested delegation or automatic model fallback.
+Global settings allow one background and one foreground spawn slot; keep at most two
+worker jobs active, including resumes. `/agents` remains available; FleetView, widgets,
+agent-mention routing, and scheduling are off.
 
-```
-~/.pi/
-├── agent/                    — all pi config lives here
-│   ├── AGENTS.md             — always-on rules (chore test, phase table,
-│   │                           auto-spawn triggers, worker brief spec,
-│   │                           worker-review gate, images, diffing, herdr)
-│   ├── SUBAGENTS.md          — Agent spawn + FleetView / viewer keymaps
-│   ├── subagents.json        — no built-in agents, no fallback,
-│   │                           workflows off, depth 1
-│   ├── skills/
-│   │   ├── harness-tdd/      — TDD bug loop (on demand)
-│   │   ├── harness-diff-read/ — inspect → git → diff-reader
-│   │   ├── harness-mockup/   — opt-in, lead-authored HTML mockups for diffing review
-│   │   └── claude-review/    — independent Claude review pane → human-approved fix plan
-│   ├── agents/               — 10 workers
-│   ├── extensions/
-│   │   ├── 00-paste-chips.ts — [Image #N] / [Paste #N] chips
-│   │   ├── paste-images.ts   — decode pasted images to agent/vision/
-│   │   ├── efficiency/       — compress, fold, Flash compact, deferred
-│   │   │                       tools, memory inject, thinking-router
-│   │   ├── context-efficiency.ts — early compact on small windows
-│   │   ├── cursor-lazy/      — Cursor provider, loaded on demand by /cursor-load
-│   │   ├── vision-router.ts  — auto vision for pasted images
-│   │   ├── worker-model.ts   — worker model chain, OpenCode usage-out → ClinePass
-│   │   ├── opencode-fallback.ts — shared usage-limit detection
-│   │   ├── astra-1m-alias.ts — gpt-6-astra-1m → upstream gpt-6-astra
-│   │   ├── sol-1m-alias.ts   — gpt-5.6-sol-1m → upstream gpt-5.6-sol
-│   │   ├── btw.ts            — /btw side question overlay
-│   │   └── pi-tool-repair.json
-│   ├── npm/                  — pi packages (pi-subagents, vim, pi-lens, …)
-│   ├── prompts/              — /diffing /plan /review /finish /commit
-│   │                           /explore /implement /verify /debug /delegate /claude-review
-│   ├── themes/               — rose-pine (high-contrast TUI syntax)
-│   ├── settings.json         — openai-codex/gpt-6-astra default @ low,
-│   │                           Ctrl+P cycle, compact TUI, nvim editor
-│   ├── models.json           — model definitions
-│   └── keybindings.json      — vim-style editing; Ctrl+C interrupts
-└── .gitignore
-```
+Workers use `isolated: false` with only the security gate active, and no inherited
+skills, context files, or parent conversation. Frontmatter wins over caller parameters.
+The loader discovers extension factories before filtering active handlers; this is not
+an OS sandbox. Give the worker a goal, scope, and checks, then inspect its actual result.
 
-Gitignored: `auth.json`, `models-store.json`, `trust.json`, Cursor SDK
-cache, `sessions/`, `vision/`, `tmp/` (tool-dumps),
-`memory/`, `waiting/`, and the local `extensions/diffing` symlink.
+Keep the browser, vision, diffing, mockup, herdr, and vim workflows and their security
+boundaries. Images are native for multimodal leads; a text-only lead uses the registered
+vision-router fallback, never a worker that cannot see images. Mockups remain opt-in and
+lead-authored. Consequential actions require authorization. The security gate is
+a preflight guardrail, not an OS sandbox. Never expose or commit secrets; keep the
+extension `node_modules` symlink intact.
 
-Piolium is not loaded globally. Install it in the target repo when you audit.
+Browser tools stay unchanged: `agent_browser` first, `browser_playwright` as fallback.
+Navigation and snapshots remain available; interactive mutations require confirmation.
+Credential, workspace-path, and upload protections remain in place. Browser dependencies
+under `agent/extensions/browser/node_modules` are preserved.
 
-## How it works
+Canonical check: `npm run check --prefix agent/npm`.
 
-- You are the lead (any model via `/model` or `Ctrl+P`); workers are cheap
-  Flash sessions via `Agent` (`@tintinweb/pi-subagents`). Foreground is
-  default; `run_in_background: true` returns an agent id. Keymaps:
-  [agent/SUBAGENTS.md](agent/SUBAGENTS.md).
-- ClinePass: custom provider in `agent/models.json`. Export `CLINE_API_KEY`
-  (Settings → API Keys at app.cline.bot), then `/model` or Ctrl+P. Flash
-  workers and the vision worker fall back here when OpenCode is unauthed or
-  out of usage — the lead is never switched.
-- Diffs: inspect first (`summary` → `--path` files/slice). Path-scoped
-  `git diff` next. `diff-reader` last, never the whole tree.
-- Diffing review loop: `/plan` before coding, `/review` hands the diff to
-  you, `/finish` applies feedback.
-- Extensions hot-reload with `/reload`.
+## Daily controls
+
+`Ctrl+P` cycles lead models; `Shift+Tab` changes thinking; `Ctrl+C` interrupts;
+`Ctrl+X` clears/exits; `Esc` enters vim normal mode; `Ctrl+G` opens nvim; `@file`
+references a file; `!cmd` runs a shell command; `Alt+Enter` queues a follow-up;
+`Ctrl+V` pastes an image; `alt+h/j/k/l` moves in the editor. Use `/tree`, `/fork`,
+`/compact`, `/review`, `/finish`, `/plan`, `/diffing`, `/fast`, `/btw`, `/visualise`, and
+`/agents` as appropriate. `pi -c` resumes the latest session; `pi -r` browses sessions.
+Astra/Sol 1M model aliases and lens/vim integrations remain enabled.
+`/commit` drafts a message; `/commit-push` explicitly requests a scoped commit and push.
+
+Native compaction remains enabled and deferred tools remain available. Optional
+worker-model and context-efficiency features are disabled by default; custom
+compress/fold/memory code is dormant. `pi-intercom` and `pi-tool-repair` resources
+are disabled by default, though packages remain installed. Re-enable these deliberately
+through `agent/settings.json` resource filters and `agent/extensions/efficiency/index.ts`
+registrations. Worker fallback is disabled; the existing vision fallback remains enabled.
 
 ## User-message jump patch (re-apply after pi updates)
 
@@ -119,15 +97,13 @@ if (!this.hasOverlay() && matchesKey(data, "alt+down")) {
    `matchesKey` is already exported by `./keys.js`; add it to the existing
    `import { isKeyRelease } from "./keys.js";`.
 
-## Usage
+## Maintenance
 
-- pi reads config from `~/.pi/agent`; this repo is the source of truth.
-- Changes to extensions land on `/reload`; refreshed model scoping applies on
-  `/new` or restart.
-- `pi -c` continues the most recent session, `pi -r` browses sessions.
+`agent/AGENTS.md` holds concise working/testing guidance; `agent/APPEND_SYSTEM.md`
+holds hard safety rules. Restart Pi after changing extension or worker configuration
+so its tool schemas and hooks are rebuilt. Do not reload while workers are active.
 
-## Deep docs
-
-Full architecture, model inventory, agent table, token commands, and
-diffing workflow: [agent/README.md](agent/README.md).
-Subagent spawn + keymaps: [agent/SUBAGENTS.md](agent/SUBAGENTS.md).
+Existing histories, images, tool dumps, backups, models, and development checkouts are
+preserved. Disabled sources and their tests remain during the trial; re-enable through
+the scoped settings/entry-point changes if needed. This configuration has not been
+benchmarked for speed or token savings.
