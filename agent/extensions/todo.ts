@@ -36,6 +36,7 @@ interface TodoSnapshot {
 
 const TODO_ENTRY = "todos";
 const TODO_WIDGET = "todos";
+const TODO_REMINDER = "todo-reminder";
 
 type AgentActivity = "queued" | "running";
 
@@ -152,6 +153,7 @@ export default function (pi: ExtensionAPI) {
 	let todos: Todo[] = [];
 	let nextId = 1;
 	let currentCtx: ExtensionContext | undefined;
+	let lastReminder: string | undefined;
 	const activeAgents = new Map<string, AgentActivity>();
 
 	const snapshot = (): TodoSnapshot => ({ todos: cloneTodos(todos), nextId });
@@ -263,14 +265,17 @@ export default function (pi: ExtensionAPI) {
 
 	pi.on("session_start", async (_event, ctx) => {
 		currentCtx = ctx;
+		lastReminder = undefined;
 		activeAgents.clear();
 		reconstructState(ctx);
 	});
 	pi.on("session_tree", async (_event, ctx) => {
 		currentCtx = ctx;
+		lastReminder = undefined;
 		reconstructState(ctx);
 	});
 	pi.on("session_compact", async (_event, ctx) => {
+		lastReminder = undefined;
 		if (todos.length > 0) persist();
 		refreshWidget(ctx);
 	});
@@ -306,14 +311,23 @@ export default function (pi: ExtensionAPI) {
 	pi.events.on("subagents:completed", settleAgent);
 	pi.events.on("subagents:failed", settleAgent);
 
-	pi.on("before_agent_start", async (event) => {
-		if (todos.length === 0) return;
+	// A hidden history message, not a system-prompt edit: changing the system
+	// prompt invalidates the provider prompt cache for the whole conversation.
+	pi.on("before_agent_start", async () => {
+		if (todos.length === 0) {
+			lastReminder = undefined;
+			return;
+		}
 		const reminder = [
 			"TODO PROGRESS (user-visible via /todos — must match reality right now):",
 			formatList(todos),
 			"After you finish a step, call todo toggle on that id before the next step or your final reply. Add newly discovered steps immediately. Use update if a step's text changed. Never leave finished work unmarked. clear only when the whole task is done.",
 		].join("\n");
-		return { systemPrompt: `${event.systemPrompt}\n\n${reminder}` };
+		if (reminder === lastReminder) return;
+		lastReminder = reminder;
+		return {
+			message: { customType: TODO_REMINDER, content: reminder, display: false },
+		};
 	});
 
 	pi.registerTool({

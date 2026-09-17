@@ -69,7 +69,7 @@
   "tuiMode": "fullscreen",
   "fullscreenScrollbar": "hidden",
   "doubleEscapeAction": "none",
-  "showCacheMissNotices": false,
+  "showCacheMissNotices": true,
   "autocompleteMaxVisible": 6,
   "markdown": {
     "codeBlockIndent": "",

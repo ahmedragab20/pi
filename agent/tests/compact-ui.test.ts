@@ -116,6 +116,56 @@ describe("todo/agent widget (balanced compact UI)", () => {
 	});
 });
 
+describe("todo reminder", () => {
+	type ReminderResult =
+		| {
+				message?: { customType: string; content: string; display: boolean };
+				systemPrompt?: string;
+		  }
+		| undefined;
+
+	test("injects a hidden deduped reminder message instead of editing the system prompt", async () => {
+		const { pi, handlers, tools } = makePi();
+		todoExtension(pi as never);
+		const ctx = makeTodoCtx(new Map());
+
+		await handlers.get("session_start")![0]({}, ctx);
+		const before = handlers.get("before_agent_start")![0];
+		const noTodos = (await before({ systemPrompt: "base" }, ctx)) as ReminderResult;
+		expect(noTodos).toBeUndefined();
+
+		await tools["todo"].execute(
+			"call-1",
+			{ action: "add", text: "Inspect workspace" },
+			undefined,
+			undefined,
+			ctx,
+		);
+		const first = (await before({}, ctx)) as ReminderResult;
+		expect(first?.systemPrompt).toBeUndefined();
+		expect(first?.message?.customType).toBe("todo-reminder");
+		expect(first?.message?.display).toBe(false);
+		expect(first?.message?.content).toContain("#1: Inspect workspace");
+
+		const second = await before({}, ctx);
+		expect(second).toBeUndefined();
+
+		await tools["todo"].execute(
+			"call-2",
+			{ action: "toggle", id: 1 },
+			undefined,
+			undefined,
+			ctx,
+		);
+		const afterToggle = (await before({}, ctx)) as ReminderResult;
+		expect(afterToggle?.message?.content).toContain("[x] #1");
+
+		await handlers.get("session_compact")![0]({}, ctx);
+		const afterCompact = (await before({}, ctx)) as ReminderResult;
+		expect(afterCompact?.message).toBeDefined();
+	});
+});
+
 describe("compact footer", () => {
 	test("formats git state with compact symbols", () => {
 		expect(formatGitStatus("")).toBe("✓");

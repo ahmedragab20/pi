@@ -450,41 +450,65 @@ describe("compact footer × github-pr integration", () => {
 });
 
 describe("github-pr extension hooks", () => {
-	test("context hook appends exactly one hidden metadata message, preserves originals, no durable writes", async () => {
+	type HookResult =
+		| { message?: Record<string, unknown>; systemPrompt?: string }
+		| undefined;
+
+	test("before_agent_start injects one hidden PR context message without a context hook", async () => {
 		const h = makeHarness();
 		githubPrExtension(h.pi as never);
 		extensions.push(h);
-		const handler = h.handlers.get("context")![0];
-		const original = [
-			{ role: "user", content: "hello" },
-			{ role: "custom", customType: "github-pr-context", content: "stale" },
-		];
-		const result = (await handler({ messages: original }, h.ctx)) as {
-			messages: Record<string, unknown>[];
-		};
-		const injected = result.messages.filter(
-			(m) => m.customType === "github-pr-context",
-		);
-		expect(injected).toHaveLength(1);
-		expect(injected[0].role).toBe("custom");
-		expect(injected[0].display).toBe(false);
-		expect(String(injected[0].content)).toContain('"number":42');
-		expect(String(injected[0].content)).toContain("untrusted");
-		expect(result.messages).toContain(original[0]);
+		expect(h.handlers.get("context")).toBeUndefined();
+		const result = (await h.handlers.get("before_agent_start")![0]({}, h.ctx)) as HookResult;
+		expect(result).toBeDefined();
+		expect(result!.message).toBeDefined();
+		expect(result!.message!.customType).toBe("github-pr-context");
+		expect(result!.message!.display).toBe(false);
+		expect(String(result!.message!.content)).toContain('"number":42');
+		expect(String(result!.message!.content)).toContain("untrusted");
+		expect(result!.systemPrompt).toBeUndefined();
 		expect(h.durable).toEqual([]);
 	});
 
-	test("context hook works with hasUI=false and never touches status", async () => {
+	test("before_agent_start skips unchanged PR context and re-injects when the PR changes", async () => {
+		const h = makeHarness();
+		githubPrExtension(h.pi as never);
+		extensions.push(h);
+		const handler = h.handlers.get("before_agent_start")![0];
+		const first = (await handler({}, h.ctx)) as HookResult;
+		expect(first?.message).toBeDefined();
+		const second = await handler({}, h.ctx);
+		expect(second).toBeUndefined();
+		h.mock.ghResult = out({ stdout: openPr(43) });
+		const third = (await handler({}, h.ctx)) as HookResult;
+		expect(third?.message).toBeDefined();
+		expect(String(third!.message!.content)).toContain('"number":43');
+	});
+
+	test("session_compact and session_tree re-arm PR context injection", async () => {
+		const h = makeHarness();
+		githubPrExtension(h.pi as never);
+		extensions.push(h);
+		const handler = h.handlers.get("before_agent_start")![0];
+		const first = (await handler({}, h.ctx)) as HookResult;
+		expect(first?.message).toBeDefined();
+		await h.handlers.get("session_compact")![0]({}, h.ctx);
+		const afterCompact = (await handler({}, h.ctx)) as HookResult;
+		expect(afterCompact?.message).toBeDefined();
+		await h.handlers.get("session_tree")![0]({}, h.ctx);
+		const afterTree = (await handler({}, h.ctx)) as HookResult;
+		expect(afterTree?.message).toBeDefined();
+		const final = await handler({}, h.ctx);
+		expect(final).toBeUndefined();
+	});
+
+	test("before_agent_start works with hasUI=false", async () => {
 		const h = makeHarness({ hasUI: false });
 		githubPrExtension(h.pi as never);
 		extensions.push(h);
-		const result = (await h.handlers.get("context")![0](
-			{ messages: [] },
-			h.ctx,
-		)) as { messages: Record<string, unknown>[] };
-		expect(
-			result.messages.filter((m) => m.customType === "github-pr-context"),
-		).toHaveLength(1);
+		const result = (await h.handlers.get("before_agent_start")![0]({}, h.ctx)) as HookResult;
+		expect(result?.message).toBeDefined();
+		expect(result!.message!.customType).toBe("github-pr-context");
 		expect(h.durable).toEqual([]);
 	});
 
