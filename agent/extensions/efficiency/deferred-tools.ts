@@ -49,6 +49,7 @@ export function registerDeferredTools(pi: ExtensionAPI): void {
 			const matches = pi
 				.getAllTools()
 				.filter((t) => {
+					if (t.name === "tool_search") return false;
 					const hay = `${t.name} ${t.description ?? ""}`.toLowerCase();
 					return q.split(/\s+/).every((term) => hay.includes(term));
 				})
