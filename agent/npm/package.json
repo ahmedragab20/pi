@@ -10,9 +10,9 @@
   "dependencies": {
     "@earendil-works/pi-coding-agent": "file:../../../../../opt/homebrew/lib/node_modules/@earendil-works/pi-coding-agent",
     "@earendil-works/pi-tui": "^0.84.2",
-    "@juicesharp/rpiv-ask-user-question": "^2.9.0",
+    "@juicesharp/rpiv-ask-user-question": "^2.10.1",
     "pi-intercom": "^0.13.0",
-    "pi-lens": "^4.1.6",
+    "pi-lens": "^4.2.0",
     "pi-tool-repair": "^0.2.5",
     "pi-vim": "^0.14.2"
   },
