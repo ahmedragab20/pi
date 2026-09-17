@@ -5,22 +5,24 @@ import type {
 import { Type } from "typebox";
 import { execFile } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { chmod, mkdir, readdir, readFile, stat } from "node:fs/promises";
-import { homedir, platform } from "node:os";
+import { chmod, mkdir, readFile, stat } from "node:fs/promises";
+import { homedir } from "node:os";
 import { extname, join } from "node:path";
 import { promisify } from "node:util";
 import { StringDecoder } from "node:string_decoder";
 import {
-  isInteractiveAction,
+  type ConfirmMode,
+  isLocalUrl,
+  needsBrowserConfirmation,
   validateBrowserArgs,
   validateBrowserPath,
-  validateUrl,
 } from "./policy.ts";
 
 const execFileAsync = promisify(execFile);
 const DEFAULT_TIMEOUT_MS = 30_000;
 const MAX_TIMEOUT_MS = 120_000;
 const MAX_OUTPUT_BYTES = 48_000;
+const MAX_BATCH_STEPS = 20;
 const SESSION_PATTERN = /^[a-zA-Z0-9_-]{1,64}$/;
 const AGENT_BROWSER_BIN = join(
   import.meta.dirname,
@@ -30,11 +32,6 @@ const AGENT_BROWSER_BIN = join(
 );
 const SCREENSHOT_DIR = join(homedir(), ".pi", "agent", "browser-artifacts");
 const MAX_INLINE_IMAGE_BYTES = 8 * 1024 * 1024;
-const PLAYWRIGHT_CACHE_DIR =
-  process.env.PLAYWRIGHT_BROWSERS_PATH ||
-  (platform() === "darwin"
-    ? join(homedir(), "Library", "Caches", "ms-playwright")
-    : join(homedir(), ".cache", "ms-playwright"));
 
 const IMAGE_MIME_BY_EXT: Record<string, string> = {
   ".png": "image/png",
@@ -71,7 +68,25 @@ const agentBrowserActions = [
   "reload",
   "tabs",
   "close",
+  "console",
+  "errors",
+  "network",
+  "diff",
+  "set",
 ] as const;
+
+type Image = { type: "image"; data: string; mimeType: string };
+
+interface Step {
+  action: string;
+  args: string[];
+  interactive: boolean;
+  openUrl?: string;
+  /** File to chmod after the command, when it was written. */
+  outputPath?: string;
+  /** Attach outputPath inline: always for screenshots, only on mismatch for diffs. */
+  inline?: "always" | "mismatch";
+}
 
 /**
  * A screenshot returned as a bare path is invisible to the model, so attach the
@@ -80,9 +95,7 @@ const agentBrowserActions = [
  * guard needed here is a cap on what we read and base64 into memory. Any
  * failure degrades to the text path rather than failing the action.
  */
-async function inlineScreenshot(
-  path: string,
-): Promise<{ type: "image"; data: string; mimeType: string } | undefined> {
+async function inlineScreenshot(path: string): Promise<Image | undefined> {
   const mimeType = IMAGE_MIME_BY_EXT[extname(path).toLowerCase()];
   if (!mimeType) return undefined;
   try {
@@ -93,49 +106,6 @@ async function inlineScreenshot(
   } catch {
     return undefined;
   }
-}
-
-async function pathExists(path: string): Promise<boolean> {
-  try {
-    await stat(path);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-/**
- * Playwright refuses to launch unless its own pinned revision is installed, and
- * that install can fail on machines where extracting the browser bundle stalls.
- * Any complete headless shell already in the cache drives the same API, so fall
- * back to the newest one rather than leaving the tool permanently unusable.
- * `INSTALLATION_COMPLETE` is what separates a finished install from a partial
- * extraction, so never hand back a build that lacks it.
- */
-async function findCachedHeadlessShell(): Promise<string | undefined> {
-  try {
-    const versions = (await readdir(PLAYWRIGHT_CACHE_DIR))
-      .filter((name) => name.startsWith("chromium_headless_shell-"))
-      .sort(
-        (a, b) =>
-          Number(b.slice(b.lastIndexOf("-") + 1)) -
-          Number(a.slice(a.lastIndexOf("-") + 1)),
-      );
-    for (const version of versions) {
-      const versionDir = join(PLAYWRIGHT_CACHE_DIR, version);
-      if (!(await pathExists(join(versionDir, "INSTALLATION_COMPLETE"))))
-        continue;
-      const buildDir = (await readdir(versionDir)).find((name) =>
-        name.startsWith("chrome-headless-shell-"),
-      );
-      if (!buildDir) continue;
-      const binary = join(versionDir, buildDir, "chrome-headless-shell");
-      if (await pathExists(binary)) return binary;
-    }
-  } catch {
-    // No readable cache; let Playwright resolve its own build.
-  }
-  return undefined;
 }
 
 function boundedTimeout(value?: number): number {
@@ -158,380 +128,365 @@ function trimOutput(value: string): string {
   return `${prefix}\n\n[output truncated; narrow the request]`;
 }
 
-async function confirmConsequential(
-  ctx: ExtensionContext,
-  action: string,
-  args: string[],
-  consequential: boolean,
-  signal?: AbortSignal,
-): Promise<void> {
-  if (signal?.aborted) throw new Error("Browser action aborted");
-  if (!consequential) return;
-  if (!ctx.hasUI)
-    throw new Error(
-      "Consequential browser actions require interactive user confirmation",
-    );
-  let preview = args.join(" ");
+function preview(step: Step): string {
+  const { action, args } = step;
   if (action === "fill" || action === "type")
-    preview = `${args[0] ?? ""} [text hidden]`;
+    return `${action} ${args[0] ?? ""} [text hidden]`;
   if (action === "find") {
     const positional = validateBrowserArgs(action, args).positional;
-    const index = positional[0] === "nth" ? 3 : 2;
-    preview = positional.slice(0, index + 1).join(" ");
+    const nested = positional[0] === "nth" ? 3 : 2;
+    let text = `find ${positional.slice(0, nested + 1).join(" ")}`;
     const name = args.indexOf("--name");
-    if (name >= 0) preview += ` --name ${args[name + 1]}`;
+    if (name >= 0) text += ` --name ${args[name + 1]}`;
+    return text;
   }
-  const ok = await ctx.ui.confirm(
-    "Allow browser action?",
-    `${action} ${preview}\n\nThis action can submit, upload, log in, or change external data. Approve this individual action?`,
-    { signal },
-  );
-  if (!ok) throw new Error("Browser action blocked by user");
+  return `${action} ${args.join(" ")}`.trim();
 }
 
-export default function browserExtension(pi: ExtensionAPI) {
-  let fallbackBrowser: import("playwright").Browser | undefined;
-  let fallbackPage: import("playwright").Page | undefined;
-  let fallbackBusy = false;
-  const sessionPrefix = randomUUID().slice(0, 8);
-  const sessions = new Set<string>();
-  const browserEnv = Object.fromEntries(
-    Object.entries(process.env).filter(
-      ([key]) => !key.startsWith("AGENT_BROWSER_"),
-    ),
-  );
+function prepareStep(
+  action: string,
+  rawArgs: string[],
+  session: string,
+  cwd: string,
+  readOnly: boolean,
+): Step {
+  if (!(agentBrowserActions as readonly string[]).includes(action))
+    throw new Error(`Unsupported browser action: ${action}`);
+  const args = [...rawArgs];
+  const policy = validateBrowserArgs(action, args);
+  if (readOnly && policy.interactive)
+    throw new Error(
+      "Clicking, typing, and uploads are lead-only; this browser tool is read-only",
+    );
+  const step: Step = { action, args, interactive: policy.interactive };
+  if ((action === "open" || action === "read") && policy.positional[0])
+    step.openUrl = policy.positional[0];
 
-  async function closeFallback() {
-    const browser = fallbackBrowser;
-    fallbackBrowser = undefined;
-    fallbackPage = undefined;
-    await browser?.close().catch(() => undefined);
-  }
-
-  async function launchFallbackBrowser() {
-    const { chromium } = await import("playwright");
-    const override = process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH;
-    if (override)
-      return chromium.launch({ headless: true, executablePath: override });
-    try {
-      return await chromium.launch({ headless: true });
-    } catch (error) {
-      const executablePath = await findCachedHeadlessShell();
-      if (!executablePath) throw error;
-      return chromium.launch({ headless: true, executablePath });
-    }
-  }
-
-  async function page() {
-    if (!fallbackBrowser) {
-      fallbackBrowser = await launchFallbackBrowser();
-    }
-    if (!fallbackPage || fallbackPage.isClosed()) {
-      const context = await fallbackBrowser.newContext();
-      fallbackPage = await context.newPage();
-    }
-    return fallbackPage;
-  }
-
-  pi.registerTool({
-    name: "agent_browser",
-    label: "Agent Browser",
-    description:
-      "Primary browser automation tool backed by agent-browser. Prefer snapshot then @ref interactions; use read for text-heavy pages and screenshots only when visual evidence matters. A screenshot returns the rendered image inline, so you can inspect layout directly; add --annotate to label interactive elements, --full for the whole page instead of the viewport. args are a validated subset of CLI arguments; use absolute HTTP(S) URLs. Interactive mutations always require confirmation, including find actions, even if consequential=false. Set consequential=true to request confirmation for any additional action. JavaScript, global CLI overrides, and AI chat are unavailable. Sessions persist across calls within this pi session.",
-    parameters: Type.Object({
-      action: Type.Union(
-        agentBrowserActions.map((value) => Type.Literal(value)),
-      ),
-      args: Type.Optional(
-        Type.Array(Type.String(), {
-          description:
-            "Arguments after the action, e.g. ['@e2'] or ['@e3', 'text']",
-        }),
-      ),
-      session: Type.Optional(
-        Type.String({
-          description: "Isolated browser session name; default: pi",
-        }),
-      ),
-      timeoutMs: Type.Optional(
-        Type.Number({ minimum: 1000, maximum: MAX_TIMEOUT_MS }),
-      ),
-      consequential: Type.Optional(
-        Type.Boolean({
-          description:
-            "Require user confirmation for an externally consequential interaction",
-        }),
-      ),
-    }),
-    async execute(_id, params, signal, _onUpdate, ctx) {
-      if (signal?.aborted) throw new Error("Browser action aborted");
-      const session = params.session ?? "pi";
-      const args = [...(params.args ?? [])];
-      validateSession(session);
-      const policy = validateBrowserArgs(params.action, args);
-      let outputPath: string | undefined;
-      if (params.action === "screenshot" || params.action === "pdf") {
-        const extension = params.action === "pdf" ? "pdf" : "png";
-        const raw =
-          policy.positional[0] ??
-          join(SCREENSHOT_DIR, `${session}-${randomUUID()}.${extension}`);
-        outputPath = validateBrowserPath(raw, ctx.cwd, SCREENSHOT_DIR, true);
-        if (
-          !(params.action === "pdf" ? /\.pdf$/i : /\.(png|jpe?g|webp)$/i).test(
-            outputPath,
-          )
-        ) {
-          throw new Error(
-            "Browser output path must have the matching image or PDF extension",
-          );
-        }
-        if (policy.positional[0]) args[args.indexOf(raw)] = outputPath;
-        else args.push(outputPath);
-      }
-      if (params.action === "upload") {
-        for (let i = 1; i < args.length; i++) {
-          args[i] = validateBrowserPath(
-            args[i],
-            ctx.cwd,
-            SCREENSHOT_DIR,
-            false,
-          );
-        }
-      }
-      await confirmConsequential(
-        ctx,
-        params.action,
-        args,
-        policy.needsConfirmation || params.consequential === true,
-        signal,
+  if (action === "screenshot" || action === "pdf") {
+    const extension = action === "pdf" ? "pdf" : "png";
+    const raw =
+      policy.positional[0] ??
+      join(SCREENSHOT_DIR, `${session}-${randomUUID()}.${extension}`);
+    const outputPath = validateBrowserPath(raw, cwd, SCREENSHOT_DIR, true);
+    if (
+      !(action === "pdf" ? /\.pdf$/i : /\.(png|jpe?g|webp)$/i).test(outputPath)
+    ) {
+      throw new Error(
+        "Browser output path must have the matching image or PDF extension",
       );
-      if (signal?.aborted) throw new Error("Browser action aborted");
-      await mkdir(SCREENSHOT_DIR, { recursive: true, mode: 0o700 });
-
-      const browserSession = `${sessionPrefix}-${session}`;
-      sessions.add(browserSession);
-      const commandArgs = ["--session", browserSession, params.action, ...args];
-
-      try {
-        const { stdout, stderr } = await execFileAsync(
-          AGENT_BROWSER_BIN,
-          commandArgs,
-          {
-            timeout: boundedTimeout(params.timeoutMs),
-            maxBuffer: 2 * 1024 * 1024,
-            signal,
-            env: { ...browserEnv, NO_COLOR: "1" },
-            cwd: SCREENSHOT_DIR,
-          },
-        );
-        if (outputPath) await chmod(outputPath, 0o600);
-        if (params.action === "close") sessions.delete(browserSession);
-        const text = trimOutput(
-          [stdout, stderr].filter(Boolean).join("\n").trim() || "OK",
-        );
-        const image =
-          params.action === "screenshot" && outputPath
-            ? await inlineScreenshot(outputPath)
-            : undefined;
-        return {
-          content: image
-            ? [{ type: "text", text }, image]
-            : [{ type: "text", text }],
-          details: { backend: "agent-browser", session },
-        };
-      } catch (error) {
-        const failure = error as Error & { stdout?: string; stderr?: string };
-        const detail = trimOutput(
-          [
-            "Browser command failed or was cancelled",
-            failure.stdout,
-            failure.stderr,
-          ]
-            .filter(Boolean)
-            .join("\n"),
-        );
-        throw new Error(
-          `${detail}\n\nUse browser_playwright only if agent-browser itself is unavailable or incompatible with the page.`,
-        );
-      }
-    },
-  });
-
-  pi.registerTool({
-    name: "browser_playwright",
-    label: "Browser (Playwright fallback)",
-    description:
-      "Fallback browser tool. Use only when the primary browser tool is unavailable or incompatible. Prefer DOM text over screenshots. A screenshot captures the viewport and returns the image inline; set fullPage=true only when content below the fold matters, since a tall page downscales badly. Interactive mutations always require confirmation; consequential=false cannot bypass it. Use absolute HTTP(S) URLs. Set consequential=true for additional confirmation.",
-    parameters: Type.Object({
-      action: Type.Union([
-        Type.Literal("open"),
-        Type.Literal("click"),
-        Type.Literal("fill"),
-        Type.Literal("type"),
-        Type.Literal("press"),
-        Type.Literal("text"),
-        Type.Literal("snapshot"),
-        Type.Literal("screenshot"),
-        Type.Literal("close"),
-      ]),
-      target: Type.Optional(
-        Type.String({
-          description: "URL for open, or CSS/text selector for element actions",
-        }),
-      ),
-      value: Type.Optional(
-        Type.String({ description: "Text or key for fill, type, or press" }),
-      ),
-      fullPage: Type.Optional(
-        Type.Boolean({
-          description:
-            "Capture the whole scrollable page instead of the viewport (screenshot only)",
-        }),
-      ),
-      consequential: Type.Optional(Type.Boolean()),
-    }),
-    async execute(_id, params, signal, _onUpdate, ctx) {
-      if (signal?.aborted) throw new Error("Browser action aborted");
-      if (fallbackBusy)
-        throw new Error(
-          "Playwright fallback already has an action in progress",
-        );
-      if (params.action === "open") validateUrl(params.target ?? "");
-      if (params.action === "screenshot" && params.target) {
-        params.target = validateBrowserPath(
-          params.target,
-          ctx.cwd,
-          SCREENSHOT_DIR,
-          true,
-        );
-        if (!/\.(png|jpe?g|webp)$/i.test(params.target))
-          throw new Error("Screenshot requires an image extension");
-      }
-      await confirmConsequential(
-        ctx,
-        params.action,
-        [params.target, params.value].filter(Boolean) as string[],
-        isInteractiveAction(params.action) || params.consequential === true,
-        signal,
+    }
+    if (policy.positional[0]) args[args.indexOf(raw)] = outputPath;
+    else args.push(outputPath);
+    step.outputPath = outputPath;
+    if (action === "screenshot") step.inline = "always";
+  }
+  if (action === "upload") {
+    for (let i = 1; i < args.length; i++) {
+      args[i] = validateBrowserPath(args[i], cwd, SCREENSHOT_DIR, false);
+    }
+  }
+  if (action === "diff") {
+    const baseline = args.indexOf("--baseline");
+    if (baseline >= 0)
+      args[baseline + 1] = validateBrowserPath(
+        args[baseline + 1],
+        cwd,
+        SCREENSHOT_DIR,
+        false,
       );
-      if (signal?.aborted) throw new Error("Browser action aborted");
-      if (fallbackBusy)
-        throw new Error(
-          "Playwright fallback already has an action in progress",
-        );
-      fallbackBusy = true;
-      const onAbort = () => {
-        void closeFallback();
-      };
-      signal?.addEventListener("abort", onAbort, { once: true });
-      try {
-        if (params.action === "close") {
-          await closeFallback();
-          return {
-            content: [
-              { type: "text", text: "Closed Playwright fallback browser" },
-            ],
-            details: { backend: "playwright" },
-          };
-        }
+    if (policy.positional[0] === "screenshot") {
+      const output = args.indexOf("-o");
+      const outputPath = validateBrowserPath(
+        output >= 0
+          ? args[output + 1]
+          : join(SCREENSHOT_DIR, `${session}-diff-${randomUUID()}.png`),
+        cwd,
+        SCREENSHOT_DIR,
+        true,
+      );
+      if (!/\.png$/i.test(outputPath))
+        throw new Error("diff output path must be a .png file");
+      if (output >= 0) args[output + 1] = outputPath;
+      else args.push("-o", outputPath);
+      step.outputPath = outputPath;
+      step.inline = "mismatch";
+    }
+  }
+  return step;
+}
 
-        const currentPage = await page();
-        if (signal?.aborted) throw new Error("Browser action aborted");
-        let text: string;
-        let shotPath: string | undefined;
-        switch (params.action) {
-          case "open":
-            if (!params.target) throw new Error("open requires target URL");
-            await currentPage.goto(params.target, {
-              waitUntil: "domcontentloaded",
-              timeout: DEFAULT_TIMEOUT_MS,
-            });
-            text = `Opened ${currentPage.url()}\n${await currentPage.title()}`;
-            break;
-          case "click":
-            if (!params.target)
-              throw new Error("click requires target selector");
-            await currentPage.locator(params.target).click();
-            text = "Clicked";
-            break;
-          case "fill":
-          case "type":
-            if (!params.target || params.value === undefined)
-              throw new Error(`${params.action} requires target and value`);
-            if (params.action === "fill")
-              await currentPage.locator(params.target).fill(params.value);
-            else
-              await currentPage
-                .locator(params.target)
-                .pressSequentially(params.value);
-            text = params.action === "fill" ? "Filled" : "Typed";
-            break;
-          case "press":
-            if (!params.target || !params.value)
-              throw new Error("press requires target and value");
-            await currentPage.locator(params.target).press(params.value);
-            text = `Pressed ${params.value}`;
-            break;
-          case "text":
-            text = trimOutput(
-              await currentPage.locator(params.target ?? "body").innerText(),
-            );
-            break;
-          case "snapshot":
-            text = trimOutput(
-              await currentPage.locator(params.target ?? "body").ariaSnapshot(),
-            );
-            break;
-          case "screenshot": {
-            await mkdir(SCREENSHOT_DIR, { recursive: true, mode: 0o700 });
-            const path =
-              params.target ??
-              join(SCREENSHOT_DIR, `playwright-${Date.now()}.png`);
-            await currentPage.screenshot({
-              path,
-              fullPage: params.fullPage === true,
-            });
-            await chmod(path, 0o600);
-            shotPath = path;
-            text = path;
-            break;
-          }
-          default:
-            throw new Error(`Unsupported action: ${params.action}`);
-        }
-        const image = shotPath ? await inlineScreenshot(shotPath) : undefined;
-        return {
-          content: image
-            ? [{ type: "text", text }, image]
-            : [{ type: "text", text }],
-          details: { backend: "playwright", url: currentPage.url() },
-        };
-      } catch {
-        throw new Error(
-          signal?.aborted
-            ? "Browser action aborted"
-            : "Playwright action failed; check page state and installed browser",
-        );
-      } finally {
-        signal?.removeEventListener("abort", onAbort);
-        if (signal?.aborted) await closeFallback();
-        fallbackBusy = false;
-      }
-    },
-  });
+/**
+ * The browser extension, parameterized so a worker can load a verify-only copy
+ * (`browser_verify`, a distinct name so both can coexist in one loader pass):
+ * navigation, snapshots, screenshots, and diffs, but no clicks, typing, or
+ * uploads, and no confirmation prompts it could never answer.
+ */
+export function createBrowserExtension(options: { readOnly: boolean }) {
+  const { readOnly } = options;
+  return function browserExtension(pi: ExtensionAPI) {
+    let mode: ConfirmMode = "default";
+    const sessionPrefix = randomUUID().slice(0, 8);
+    const sessions = new Set<string>();
+    const browserEnv = {
+      ...Object.fromEntries(
+        Object.entries(process.env).filter(
+          ([key]) => !key.startsWith("AGENT_BROWSER_"),
+        ),
+      ),
+      NO_COLOR: "1",
+      // Nonce-marked page content, so injected text cannot pose as tool output.
+      AGENT_BROWSER_CONTENT_BOUNDARIES: "1",
+    };
 
-  pi.on("session_shutdown", async () => {
-    await closeFallback();
-    await Promise.all(
-      [...sessions].map((session) =>
-        execFileAsync(AGENT_BROWSER_BIN, ["--session", session, "close"], {
-          timeout: 5_000,
-          maxBuffer: MAX_OUTPUT_BYTES,
+    function run(
+      browserSession: string,
+      commandArgs: string[],
+      timeout: number,
+      signal?: AbortSignal,
+    ) {
+      return execFileAsync(
+        AGENT_BROWSER_BIN,
+        ["--session", browserSession, ...commandArgs],
+        {
+          timeout,
+          maxBuffer: 2 * 1024 * 1024,
+          signal,
           env: browserEnv,
           cwd: SCREENSHOT_DIR,
-        }).catch(() => undefined),
-      ),
-    );
-    sessions.clear();
-  });
+        },
+      );
+    }
+
+    /** Resolve locality only when a prompt could depend on it. */
+    async function isLocalTarget(
+      browserSession: string,
+      steps: Step[],
+      signal?: AbortSignal,
+    ): Promise<boolean> {
+      if (!steps.every((step) => !step.openUrl || isLocalUrl(step.openUrl)))
+        return false;
+      if (steps[0].openUrl) return true;
+      try {
+        const { stdout } = await run(
+          browserSession,
+          ["get", "url"],
+          10_000,
+          signal,
+        );
+        return isLocalUrl(stdout.trim());
+      } catch {
+        return false;
+      }
+    }
+
+    async function confirm(
+      ctx: ExtensionContext,
+      browserSession: string,
+      steps: Step[],
+      consequential: boolean,
+      signal?: AbortSignal,
+    ): Promise<void> {
+      const interactive = steps.some((step) => step.interactive);
+      const upload = steps.some((step) => step.action === "upload");
+      if (!interactive && !consequential) return;
+      if (mode === "default" && !consequential && !upload) return;
+      const local =
+        mode === "default" &&
+        (await isLocalTarget(browserSession, steps, signal));
+      if (
+        !needsBrowserConfirmation({
+          mode,
+          interactive,
+          upload,
+          consequential,
+          local,
+        })
+      )
+        return;
+      if (signal?.aborted) throw new Error("Browser action aborted");
+      if (!ctx.hasUI)
+        throw new Error(
+          "This browser action needs interactive user confirmation",
+        );
+      const shown = interactive
+        ? steps.filter((step) => step.interactive)
+        : steps;
+      const ok = await ctx.ui.confirm(
+        "Allow browser action?",
+        `${shown.map(preview).join("\n")}\n\nThis can submit, upload, log in, or change external data. Approve?`,
+        { signal },
+      );
+      if (!ok) throw new Error("Browser action blocked by user");
+    }
+
+    pi.registerTool({
+      name: readOnly ? "browser_verify" : "agent_browser",
+      label: readOnly ? "Browser Verify" : "Agent Browser",
+      description: readOnly
+        ? "Read-only headless browser checks via agent-browser: open, snapshot (-i -c; --delta prints only changes), read, get, wait, scroll, screenshot (inline image; --if-changed skips unchanged), console, errors, network requests, diff snapshot, diff screenshot --baseline <png>, set viewport|device|media. action=batch runs steps in one call and stops at the first failure. Clicking, typing, and uploads are unavailable. Absolute HTTP(S) URLs only; screenshots go to the workspace or browser-artifacts."
+        : "Headless browser via agent-browser. Cheapest loop: open, snapshot -i -c, act on @refs, snapshot --delta (prints only what changed). read for text pages; screenshot only when pixels matter (inline image; --if-changed skips unchanged, --annotate labels refs). Verify with console, errors, network requests, diff snapshot, diff screenshot --baseline <png>; set viewport|device|media for responsive checks. action=batch runs steps in one call and stops at the first failure. Clicks and typing run without prompts. Set consequential=true for real side effects (submit, buy, send, log in, delete, publish): the user confirms unless the page is a local dev server. Uploads to non-local pages always confirm. No JavaScript eval, cookies/state, or global CLI flags. Sessions persist for this pi session; close when done.",
+      parameters: Type.Object({
+        action: Type.Union(
+          [...agentBrowserActions, "batch"].map((value) => Type.Literal(value)),
+        ),
+        args: Type.Optional(
+          Type.Array(Type.String(), {
+            description:
+              "Arguments after the action, e.g. ['@e2'] or ['@e3', 'text']",
+          }),
+        ),
+        steps: Type.Optional(
+          Type.Array(
+            Type.Object({
+              action: Type.String(),
+              args: Type.Optional(Type.Array(Type.String())),
+            }),
+            {
+              maxItems: MAX_BATCH_STEPS,
+              description: "For action=batch: actions run in order",
+            },
+          ),
+        ),
+        session: Type.Optional(
+          Type.String({
+            description: "Isolated browser session name; default: pi",
+          }),
+        ),
+        timeoutMs: Type.Optional(
+          Type.Number({
+            minimum: 1000,
+            maximum: MAX_TIMEOUT_MS,
+            description: "Per action",
+          }),
+        ),
+        ...(readOnly
+          ? {}
+          : {
+              consequential: Type.Optional(
+                Type.Boolean({
+                  description:
+                    "True when this call has a real-world side effect; asks the user unless the page is local",
+                }),
+              ),
+            }),
+      }),
+      async execute(_id, params, signal, _onUpdate, ctx) {
+        if (signal?.aborted) throw new Error("Browser action aborted");
+        const session = params.session ?? "pi";
+        validateSession(session);
+        const requested =
+          params.action === "batch"
+            ? (params.steps ?? [])
+            : [{ action: params.action, args: params.args }];
+        if (params.action === "batch" && params.args?.length)
+          throw new Error("batch takes steps, not args");
+        if (!requested.length) throw new Error("batch requires steps");
+        if (requested.length > MAX_BATCH_STEPS)
+          throw new Error(`batch allows at most ${MAX_BATCH_STEPS} steps`);
+        const steps = requested.map((step) =>
+          prepareStep(
+            step.action,
+            step.args ?? [],
+            session,
+            ctx.cwd,
+            readOnly,
+          ),
+        );
+
+        const browserSession = `${sessionPrefix}-${session}`;
+        const consequential =
+          !readOnly &&
+          (params as { consequential?: boolean }).consequential === true;
+        await confirm(ctx, browserSession, steps, consequential, signal);
+        if (signal?.aborted) throw new Error("Browser action aborted");
+        await mkdir(SCREENSHOT_DIR, { recursive: true, mode: 0o700 });
+        sessions.add(browserSession);
+
+        const timeout = boundedTimeout(params.timeoutMs);
+        const texts: string[] = [];
+        const images: Image[] = [];
+        const label = (index: number) =>
+          steps.length > 1 ? `[${index + 1}] ${preview(steps[index])}\n` : "";
+        for (const [index, step] of steps.entries()) {
+          try {
+            const { stdout, stderr } = await run(
+              browserSession,
+              [step.action, ...step.args],
+              timeout,
+              signal,
+            );
+            const text = [stdout, stderr].filter(Boolean).join("\n").trim();
+            if (step.action === "close") sessions.delete(browserSession);
+            texts.push(`${label(index)}${text || "OK"}`);
+            if (!step.outputPath) continue;
+            const written = await chmod(step.outputPath, 0o600).then(
+              () => true,
+              () => false,
+            );
+            if (
+              written &&
+              (step.inline === "always" ||
+                (step.inline === "mismatch" && !/Images match/.test(text)))
+            ) {
+              const image = await inlineScreenshot(step.outputPath);
+              if (image) images.push(image);
+            }
+          } catch (error) {
+            const failure = error as Error & {
+              stdout?: string;
+              stderr?: string;
+            };
+            throw new Error(
+              trimOutput(
+                [
+                  ...texts,
+                  `${label(index)}Browser command failed or was cancelled`,
+                  failure.stdout,
+                  failure.stderr,
+                  steps.length > 1 && index < steps.length - 1
+                    ? `Skipped ${steps.length - index - 1} remaining step(s).`
+                    : undefined,
+                ]
+                  .filter(Boolean)
+                  .join("\n"),
+              ),
+            );
+          }
+        }
+        return {
+          content: [
+            { type: "text", text: trimOutput(texts.join("\n\n")) },
+            ...images,
+          ],
+          details: { backend: "agent-browser", session, readOnly },
+        };
+      },
+    });
+
+    if (!readOnly) {
+      pi.registerCommand("browser-confirm", {
+        description:
+          "Browser prompts: `strict` asks before every click/type; `default` asks only for side effects on non-local pages",
+        handler: async (args, ctx) => {
+          if (!ctx.hasUI) return;
+          const next = args.trim().toLowerCase();
+          if (next === "strict" || next === "default") mode = next;
+          else if (next)
+            return ctx.ui.notify("Use /browser-confirm strict|default", "error");
+          ctx.ui.notify(`browser confirmations: ${mode}`, "info");
+        },
+      });
+    }
+
+    pi.on("session_shutdown", async () => {
+      await Promise.all(
+        [...sessions].map((session) =>
+          run(session, ["close"], 5_000).catch(() => undefined),
+        ),
+      );
+      sessions.clear();
+    });
+  };
 }
+
+export default createBrowserExtension({ readOnly: false });

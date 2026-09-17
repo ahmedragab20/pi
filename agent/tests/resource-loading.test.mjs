@@ -110,7 +110,6 @@ test("real extension loading retains browser, review, and deferred tools", {
 	);
 	for (const name of [
 		"agent_browser",
-		"browser_playwright",
 		"Agent",
 		"tool_search",
 		"diffing_status",
@@ -150,15 +149,24 @@ test("the worker allowlist activates the real headless safety gate", {
 	await loader.reload();
 	const { extensions, errors } = loader.getExtensions();
 	assert.deepEqual(errors, []);
-	assert.deepEqual(
-		extensions.map((e) => e.path),
-		[join(agentDir, "extensions/security-gate.ts")],
-	);
+	const extensionPaths = extensions.map((e) => e.path).sort();
+	const expectedPaths = [
+		join(agentDir, "extensions/security-gate.ts"),
+		join(agentDir, "extensions/browser/browser-verify.ts"),
+	].sort();
+	assert.deepEqual(extensionPaths, expectedPaths);
 	assert.deepEqual(loader.getAgentsFiles().agentsFiles, []);
 	assert.deepEqual(loader.getSkills().skills, []);
 	assert.deepEqual(loader.getAppendSystemPrompt(), []);
-	assert.equal(extensions[0].tools.size, 0);
-	const [gate] = extensions[0].handlers.get("tool_call");
+	const gate = extensions.find((e) => e.path.endsWith("security-gate.ts"));
+	assert.ok(gate);
+	assert.equal(gate.tools.size, 0);
+	const verify = extensions.find((e) =>
+		e.path.endsWith("browser/browser-verify.ts"),
+	);
+	assert.ok(verify);
+	assert.deepEqual([...verify.tools.keys()], ["browser_verify"]);
+	const [gateHandler] = gate.handlers.get("tool_call");
 	const context = { hasUI: false, cwd: repoRoot };
 	const event = (command) => ({
 		type: "tool_call",
@@ -167,12 +175,12 @@ test("the worker allowlist activates the real headless safety gate", {
 		input: { command },
 	});
 	// Invoke only the preflight hook; neither command is executed.
-	assert.equal(await gate(event("printf harmless"), context), undefined);
+	assert.equal(await gateHandler(event("printf harmless"), context), undefined);
 	assert.equal(
-		(await gate(event("printf harmless # .env"), context)).block,
+		(await gateHandler(event("printf harmless # .env"), context)).block,
 		true,
 	);
-	assert.equal((await gate(event("sudo harmless"), context)).block, true);
+	assert.equal((await gateHandler(event("sudo harmless"), context)).block, true);
 });
 
 test("only the optional worker remains and its safety settings override caller params", () => {
@@ -192,6 +200,7 @@ test("only the optional worker remains and its safety settings override caller p
 	assert.equal(fm.prompt_mode, "replace");
 	assert.deepEqual(fm.extensions, [
 		join(agentDir, "extensions/security-gate.ts"),
+		join(agentDir, "extensions/browser/browser-verify.ts"),
 	]);
 	assert.equal(fm.allowed_subagents, undefined);
 	const worker = loadCustomAgents(repoRoot).get("worker");

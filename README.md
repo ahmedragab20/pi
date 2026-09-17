@@ -24,10 +24,13 @@ lead-authored. Consequential actions require authorization. The security gate is
 a preflight guardrail, not an OS sandbox. Never expose or commit secrets; keep the
 extension `node_modules` symlink intact.
 
-Browser tools stay unchanged: `agent_browser` first, `browser_playwright` as fallback.
-Navigation and snapshots remain available; interactive mutations require confirmation.
-Credential, workspace-path, and upload protections remain in place. Browser dependencies
-under `agent/extensions/browser/node_modules` are preserved.
+`agent_browser` (agent-browser 0.38, headless) is the only browser tool. Clicks and typing
+run without prompts; calls marked `consequential` and uploads confirm unless the page is a
+local dev server, and `/browser-confirm strict` restores per-click prompts. Workers load a
+read-only `browser_verify` (`extensions/browser/browser-verify.ts`) for screenshots, diffs, console, and network
+checks. Committed e2e tests use each project's own `@playwright/test` (`harness-e2e`).
+Credential, workspace-path, and upload protections remain in place. Keep the browser
+extension's `node_modules` intact.
 
 Canonical check: `npm run check --prefix agent/npm`.
 

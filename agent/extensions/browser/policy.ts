@@ -2,6 +2,8 @@ import { isAbsolute, relative } from "node:path";
 import { isSecretPath, isWriteProtectedPath } from "../security-gate.ts";
 import { canonicalPath } from "../security/paths.ts";
 
+export type ConfirmMode = "default" | "strict";
+
 const INTERACTIVE = new Set([
 	"click",
 	"dblclick",
@@ -31,18 +33,39 @@ const FLAGS: Record<string, Record<string, boolean>> = {
 		"--depth": true,
 		"-s": true,
 		"--selector": true,
+		"-u": false,
+		"--urls": false,
+		"--delta": false,
+		"--full": false,
 		"--json": false,
 	},
 	click: { "--new-tab": false },
 	scroll: { "--selector": true },
-	screenshot: { "--full": false, "--annotate": false },
+	screenshot: {
+		"--full": false,
+		"--annotate": false,
+		"--if-changed": false,
+		"--threshold": true,
+	},
 	find: { "--name": true, "--exact": false },
 	wait: { "--text": true, "--url": true, "--load": true, "--state": true },
+	console: { "--clear": false },
+	errors: { "--clear": false },
+	network: {
+		"--filter": true,
+		"--type": true,
+		"--method": true,
+		"--status": true,
+	},
+	diff: {
+		"--baseline": true,
+		"--selector": true,
+		"--compact": false,
+		"-o": true,
+		"-t": true,
+	},
 };
-
-export function isInteractiveAction(action: string): boolean {
-	return INTERACTIVE.has(action);
-}
+const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]", "0.0.0.0"]);
 
 export function validateUrl(raw: string): void {
 	let url: URL;
@@ -58,6 +81,39 @@ export function validateUrl(raw: string): void {
 	) {
 		throw new Error("Browser URLs must use HTTP(S) without embedded credentials");
 	}
+}
+
+/** Dev servers only. LAN addresses stay remote: routers and NAS admin pages live there. */
+export function isLocalUrl(raw: string): boolean {
+	let url: URL;
+	try {
+		url = new URL(raw);
+	} catch {
+		return false;
+	}
+	if (!["http:", "https:"].includes(url.protocol)) return false;
+	const host = url.hostname.toLowerCase();
+	return (
+		LOCAL_HOSTS.has(host) ||
+		/^127(\.\d{1,3}){3}$/.test(host) ||
+		/\.(localhost|local|test)$/.test(host)
+	);
+}
+
+/**
+ * Default mode trusts ordinary clicks and typing; the user is asked only for
+ * declared side effects or uploads, and never on a local dev server. Strict
+ * mode restores a prompt for every interaction, local or not.
+ */
+export function needsBrowserConfirmation(opts: {
+	mode: ConfirmMode;
+	interactive: boolean;
+	upload: boolean;
+	consequential: boolean;
+	local: boolean;
+}): boolean {
+	if (opts.mode === "strict") return opts.interactive || opts.consequential;
+	return (opts.consequential || opts.upload) && !opts.local;
 }
 
 function inside(path: string, root: string): boolean {
@@ -92,8 +148,9 @@ export function validateBrowserPath(
 export function validateBrowserArgs(
 	action: string,
 	args: string[],
-): { positional: string[]; needsConfirmation: boolean } {
+): { positional: string[]; interactive: boolean } {
 	const positional: string[] = [];
+	const values: Record<string, string> = {};
 	const flags = FLAGS[action] ?? {};
 	for (let i = 0; i < args.length; i++) {
 		const arg = args[i];
@@ -109,13 +166,16 @@ export function validateBrowserArgs(
 			const value = args[++i];
 			if (!value || value.startsWith("-") || value.includes("\0"))
 				throw new Error(`Missing or unsafe value for ${arg}`);
+			values[arg] = value;
+		} else {
+			values[arg] = "";
 		}
 	}
 	const count = (min: number, max = min) => {
 		if (positional.length < min || positional.length > max)
 			throw new Error(`Invalid arguments for browser ${action}`);
 	};
-	let needsConfirmation = INTERACTIVE.has(action);
+	let interactive = INTERACTIVE.has(action);
 	switch (action) {
 		case "open":
 		case "read":
@@ -128,6 +188,8 @@ export function validateBrowserArgs(
 		case "reload":
 		case "tabs":
 		case "close":
+		case "console":
+		case "errors":
 			count(0);
 			break;
 		case "click":
@@ -204,7 +266,7 @@ export function validateBrowserArgs(
 			if (!["click", "fill", "check", "hover", "text"].includes(nested))
 				throw new Error("Unsupported nested browser action");
 			count(index + (nested === "fill" ? 2 : 1));
-			needsConfirmation = INTERACTIVE.has(nested);
+			interactive = INTERACTIVE.has(nested);
 			break;
 		}
 		case "wait":
@@ -214,8 +276,48 @@ export function validateBrowserArgs(
 					"wait requires a selector, duration, or supported condition",
 				);
 			break;
+		case "network":
+			// Only the request list: single-request detail carries cookies and auth headers.
+			if (positional[0] !== "requests")
+				throw new Error("Only browser network requests is supported");
+			count(1);
+			break;
+		case "diff":
+			if (positional[0] === "screenshot") {
+				if (!values["--baseline"])
+					throw new Error("diff screenshot requires --baseline <png>");
+				if (values["-t"] && !/^(0(\.\d+)?|1(\.0+)?)$/.test(values["-t"]))
+					throw new Error("diff threshold must be between 0 and 1");
+			} else if (positional[0] === "snapshot") {
+				if (values["-o"] !== undefined || values["-t"] !== undefined)
+					throw new Error("-o and -t apply only to diff screenshot");
+			} else {
+				throw new Error("Only diff snapshot and diff screenshot are supported");
+			}
+			count(1);
+			break;
+		case "set":
+			if (positional[0] === "viewport") {
+				count(3, 4);
+				if (!positional.slice(1).every((n) => /^\d+(\.\d+)?$/.test(n)))
+					throw new Error("set viewport takes numeric width, height, and scale");
+			} else if (positional[0] === "device") {
+				count(2);
+			} else if (positional[0] === "media") {
+				count(2);
+				if (!["dark", "light"].includes(positional[1]))
+					throw new Error("set media takes dark or light");
+			} else {
+				throw new Error("Only set viewport, device, and media are supported");
+			}
+			break;
 		default:
 			throw new Error("Unsupported browser action");
 	}
-	return { positional, needsConfirmation };
+	if (
+		values["--threshold"] !== undefined &&
+		!/^(0(\.\d+)?|1(\.0+)?)$/.test(values["--threshold"])
+	)
+		throw new Error("screenshot threshold must be between 0 and 1");
+	return { positional, interactive };
 }

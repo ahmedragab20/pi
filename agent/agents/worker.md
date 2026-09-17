@@ -8,7 +8,7 @@ tools: read, bash, edit, write, grep, find, ls
 thinking: medium
 max_turns: 40
 isolated: false
-extensions: ["/Users/ahmedragab/.pi/agent/extensions/security-gate.ts"]
+extensions: ["/Users/ahmedragab/.pi/agent/extensions/security-gate.ts", "/Users/ahmedragab/.pi/agent/extensions/browser/browser-verify.ts"]
 skills: false
 inherit_context: false
 prompt_mode: replace
@@ -21,6 +21,7 @@ prompt_mode: replace
 - Do not spawn agents. If blocked or a command fails, report evidence and stop rather than inventing a new approach.
 - Use natural, concise English. State facts directly and uncertainty explicitly; never claim unverified success.
 - Return changed paths, actual check commands/results, and anything incomplete.
+- `browser_verify` is a read-only browser: open, snapshot, screenshot, diff, console, errors, network requests. Clicking and typing belong to the lead.
 
 ## Tests and verification
 

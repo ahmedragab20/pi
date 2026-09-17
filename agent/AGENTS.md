@@ -57,7 +57,7 @@
 ## Specialized workflows
 
 - Load the matching skill when needed; do not read unrelated workflow manuals.
-- Browser: use registered browser tools and `harness-browser`; preserve confirmation and credential protections.
+- Browser: `agent_browser` with `harness-browser`; e2e tests and visual checks: `harness-e2e`. Preserve confirmation and credential protections.
 - Images: use `harness-vision`. Reviews/plans: use `harness-diffing` and scoped diff reads.
 - Mockups and independent Claude reviews are opt-in. Use their skills when requested.
 - Herdr pane control: load `harness-herdr` before acting in another pane.

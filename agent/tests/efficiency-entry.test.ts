@@ -21,7 +21,7 @@ function harness() {
 			"grep",
 			"agent_browser",
 		].map((name) => ({ name, description: name })),
-		{ name: "browser_playwright", description: "browser playwright automation" },
+		{ name: "ast_grep", description: "ast-grep structural search" },
 	];
 	let active = tools.map((tool) => tool.name);
 	const pi = {
@@ -68,21 +68,21 @@ test("entry point leaves context untouched and keeps browser/core tools discover
 	]) {
 		expect(h.active()).toContain(name);
 	}
-	expect(h.active()).not.toContain("browser_playwright");
+	expect(h.active()).not.toContain("ast_grep");
 	const result = await h.registered
 		.get("tool_search")!
 		.execute(
 			"search",
-			{ query: "browser playwright" },
+			{ query: "ast-grep" },
 			undefined,
 			undefined,
 			{} as never,
 		);
 	expect(result.details).toEqual({
-		matches: ["browser_playwright"],
-		added: ["browser_playwright"],
+		matches: ["ast_grep"],
+		added: ["ast_grep"],
 	});
-	expect(h.active()).toContain("browser_playwright");
+	expect(h.active()).toContain("ast_grep");
 	expect(h.active()).toContain("agent_browser");
 });
 
