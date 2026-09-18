@@ -7,7 +7,7 @@
  *  - tool_call blocking of credential/protected paths for read/write/edit
  *  - allowed near-miss paths (.environment, auth.json.example, source files)
  *  - bash: credential paths blocked even with UI confirmation available,
- *    risky commands gated on ctx.hasUI and ui.confirm, normal commands pass
+ *    risky commands gated on terminal/RPC confirmation, normal commands pass
  *  - user_bash applying the same credential and risky-command rules
  */
 
@@ -15,6 +15,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import securityGate from "../extensions/security-gate.ts";
+import { CommandConfirm } from "../extensions/security/command-confirm.ts";
 
 type Handler = (event: unknown, ctx: unknown) => Promise<unknown> | unknown;
 
@@ -23,7 +24,12 @@ interface UICall {
 	args: unknown[];
 }
 
-function makeHarness(opts: { hasUI: boolean; confirmResult?: boolean }) {
+function makeHarness(opts: {
+	hasUI: boolean;
+	confirmResult?: boolean;
+	mode?: "tui" | "rpc";
+	custom?: (...args: any[]) => Promise<boolean | undefined>;
+}) {
 	const handlers = new Map<string, Handler[]>();
 	const uiCalls: UICall[] = [];
 
@@ -37,8 +43,10 @@ function makeHarness(opts: { hasUI: boolean; confirmResult?: boolean }) {
 
 	const ctx = {
 		hasUI: opts.hasUI,
+		mode: opts.mode ?? "rpc",
 		cwd: "/tmp/security-gate-test",
 		ui: {
+			custom: opts.custom,
 			confirm: (...args: unknown[]) => {
 				uiCalls.push({ kind: "confirm", args });
 				return Promise.resolve(opts.confirmResult ?? false);
@@ -195,6 +203,162 @@ describe("bash tool_call", () => {
 		expect(h.uiCalls).toHaveLength(0);
 	});
 });
+
+describe("terminal risky-command confirmation", () => {
+	test("long commands use a bounded custom dialog, not the unscrollable confirm message", async () => {
+		let customShown = false;
+		const h = makeHarness({
+			hasUI: true,
+			mode: "tui",
+			custom: async (factory, options) => {
+				customShown = true;
+				expect(options.overlay).toBe(true);
+				const dialog = factory(
+					{ terminal: { rows: 24 }, requestRender() {} },
+					{ fg: (_color: string, text: string) => text, bold: (text: string) => text },
+					{},
+					() => {},
+				);
+				const lines = dialog.render(80);
+				expect(lines.length <= 20).toBe(true);
+				expect(lines.join("\n")).toContain("Run risky command?");
+				expect(lines.join("\n")).toContain("No");
+				expect(lines.join("\n")).toContain("Yes");
+				return false;
+			},
+		});
+		const command = "echo 'reboot\n" + "long plan text\n".repeat(200) + "'";
+		const [result] = await h.fire("tool_call", toolCall("bash", { command }));
+		expect(customShown).toBe(true);
+		expect(result).toMatchObject({ block: true });
+		expect(h.uiCalls).toHaveLength(0);
+	});
+});
+
+describe("scrollable command dialog", () => {
+	const command = Array.from({ length: 200 }, (_, i) => `command-line-${i}`).join("\n");
+	function dialogFor(text = command) {
+		const results: boolean[] = [];
+		let renders = 0;
+		const terminal = { rows: 24 };
+		const dialog = new CommandConfirm(text, ["test risk"], {
+			terminal: terminal as never,
+			requestRender() { renders++; },
+		}, {
+			fg: (_color, value) => value,
+			bold: (value) => value,
+		}, (value) => results.push(value));
+		return { dialog, terminal, results, renders: () => renders };
+	}
+
+	test("every command line is reachable, with fixed controls and bounded rows", () => {
+		const h = dialogFor();
+		const seen = new Set<string>();
+		for (let i = 0; i < 220; i++) {
+			const lines = h.dialog.render(80);
+			expect(lines.length <= 19).toBe(true);
+			expect(lines.every((line) => line.length <= 80)).toBe(true);
+			expect(lines.slice(-6).join("\n")).toContain("[ No ]     Yes");
+			for (const line of lines) seen.add(line.trim());
+			h.dialog.handleInput("\x1b[B");
+		}
+		for (const line of command.split("\n")) expect(seen.has(line)).toBe(true);
+		expect(h.results).toEqual([]);
+		expect(h.renders() > 0).toBe(true);
+	});
+
+	test("page, home, end, and up keys navigate without selecting approval", () => {
+		const h = dialogFor();
+		const initial = h.dialog.render(80);
+		h.dialog.handleInput("\x1b[6~"); // Page Down
+		expect(h.dialog.render(80).join("\n")).toContain("Lines 12-22 of 202");
+		h.dialog.handleInput("\x1b[5~"); // Page Up
+		expect(h.dialog.render(80)).toEqual(initial);
+		h.dialog.handleInput("\x1b[F"); // End
+		expect(h.dialog.render(80).join("\n")).toContain("command-line-199");
+		h.dialog.handleInput("\x1b[A"); // Up
+		expect(h.dialog.render(80).join("\n")).not.toContain("command-line-199");
+		h.dialog.handleInput("\x1b[H"); // Home
+		expect(h.dialog.render(80)).toEqual(initial);
+		h.dialog.handleInput("\r");
+		expect(h.results).toEqual([false]);
+	});
+
+	test("wraps long lines and clamps the scroll position after resize", () => {
+		const h = dialogFor("x".repeat(10000) + "TAIL");
+		expect(h.dialog.render(60).every((line) => line.length <= 60)).toBe(true);
+		h.dialog.handleInput("\x1b[F");
+		expect(h.dialog.render(60).join("\n")).toContain("TAIL");
+		h.terminal.rows = 40;
+		const resized = h.dialog.render(120);
+		expect(resized.length <= 32).toBe(true);
+		expect(resized.join("\n")).toContain("TAIL");
+		expect(resized.every((line) => line.length <= 120)).toBe(true);
+		h.dialog.invalidate();
+		expect(h.dialog.render(120)).toEqual(resized);
+	});
+
+	for (const cancel of ["\r", "\x1b", "\x03"]) {
+		test(`default/cancel key ${JSON.stringify(cancel)} denies`, () => {
+			const h = dialogFor();
+			h.dialog.render(80);
+			h.dialog.handleInput(cancel);
+			h.dialog.handleInput("\t");
+			h.dialog.handleInput("\r");
+			expect(h.results).toEqual([false]);
+		});
+	}
+
+	test("only explicitly selecting Yes then Enter approves", () => {
+		const h = dialogFor();
+		h.dialog.render(80);
+		h.dialog.handleInput("\t");
+		expect(h.results).toEqual([]);
+		expect(h.dialog.render(80).join("\n")).toContain("[ Yes ]");
+		h.dialog.handleInput("\r");
+		expect(h.results).toEqual([true]);
+	});
+
+	test("tiny terminals cannot approve; resizing restores No as default", () => {
+		const h = dialogFor();
+		h.dialog.render(80);
+		h.dialog.handleInput("\t");
+		h.terminal.rows = 4;
+		expect(h.dialog.render(20).length <= 3).toBe(true);
+		h.dialog.handleInput("\r");
+		expect(h.results).toEqual([]);
+		h.terminal.rows = 24;
+		expect(h.dialog.render(80).join("\n")).toContain("[ No ]");
+		h.dialog.handleInput("\r");
+		expect(h.results).toEqual([false]);
+	});
+
+	test("terminal escape/control characters are displayed, not interpreted", () => {
+		const h = dialogFor("echo \x1b[2J\rhidden\x07\tend");
+		const rendered = h.dialog.render(80).join("\n");
+		expect(rendered).toContain("echo \\x1b[2J\\x0dhidden\\x07    end");
+		expect(rendered.includes("\x1b")).toBe(false);
+	});
+});
+
+for (const event of ["tool_call", "user_bash"]) {
+	for (const approved of [true, false, undefined]) {
+		test(`${event}: terminal result ${approved} is handled safely`, async () => {
+			let dialogs = 0;
+			const h = makeHarness({ hasUI: true, mode: "tui", custom: async () => {
+				dialogs++;
+				return approved;
+			} });
+			const [result] = await h.fire(event, event === "tool_call"
+				? toolCall("bash", { command: "reboot" }) : { command: "reboot" });
+			expect(dialogs).toBe(1);
+			if (approved) expect(result).toBeUndefined();
+			else expect(result).toMatchObject(event === "tool_call"
+				? { block: true } : { result: { exitCode: 126, cancelled: true } });
+			expect(h.uiCalls).toHaveLength(0);
+		});
+	}
+}
 
 describe("user_bash", () => {
 	const userBash = (command: string) => ({

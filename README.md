@@ -45,6 +45,11 @@ references a file; `!cmd` runs a shell command; `Alt+Enter` queues a follow-up;
 Astra/Sol 1M model aliases and lens/vim integrations remain enabled.
 `/commit` drafts a message; `/commit-push` explicitly requests a scoped commit and push.
 
+Risky-command confirmations stay within 80% of terminal height. Use `↑`/`↓`,
+`Page Up`/`Page Down`, or `Home`/`End` to scroll the complete command; `Tab` or
+`←`/`→` chooses No/Yes, and `Enter` confirms. No is selected by default;
+`Esc` or `Ctrl+C` cancels. Approval controls stay visible while scrolling.
+
 Native compaction remains enabled and deferred tools remain available. Optional
 worker-model and context-efficiency features are disabled by default; custom
 compress/fold/memory code is dormant. `pi-intercom` and `pi-tool-repair` resources

@@ -5,6 +5,7 @@
  */
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { canonicalPath } from "./security/paths.ts";
+import { confirmRiskyCommand } from "./security/command-confirm.ts";
 
 const RULES: { pattern: RegExp; label: string }[] = [
 	{ pattern: /\bsudo\b/i, label: "privilege escalation (sudo)" },
@@ -130,10 +131,7 @@ export default function securityGate(pi: ExtensionAPI) {
 					reason: `Blocked risky command (no UI to confirm): ${hits.join(", ")}`,
 				};
 			}
-			const ok = await ctx.ui.confirm(
-				"Run risky command?",
-				`${command}\n\n⚠️  Detected: ${hits.join(", ")}`,
-			);
+			const ok = await confirmRiskyCommand(ctx, command, hits);
 			if (!ok) return { block: true, reason: "Blocked by user" };
 			return undefined;
 		}
@@ -180,10 +178,7 @@ export default function securityGate(pi: ExtensionAPI) {
 				},
 			};
 		}
-		const ok = await ctx.ui.confirm(
-			"Run risky command?",
-			`${event.command}\n\n⚠️  Detected: ${hits.join(", ")}`,
-		);
+		const ok = await confirmRiskyCommand(ctx, event.command, hits);
 		if (!ok) {
 			return {
 				result: {
