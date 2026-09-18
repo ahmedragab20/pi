@@ -29,11 +29,19 @@ function makeHarness(opts: {
 	confirmResult?: boolean;
 	mode?: "tui" | "rpc";
 	custom?: (...args: any[]) => Promise<boolean | undefined>;
+	emitError?: boolean;
 }) {
 	const handlers = new Map<string, Handler[]>();
 	const uiCalls: UICall[] = [];
+	const attentionEvents: { name: string; data: unknown }[] = [];
 
 	const pi = {
+		events: {
+			emit(name: string, data: unknown) {
+				attentionEvents.push({ name, data });
+				if (opts.emitError) throw new Error("notification listener failed");
+			},
+		},
 		on: (event: string, handler: Handler) => {
 			const list = handlers.get(event) ?? [];
 			list.push(handler);
@@ -67,7 +75,7 @@ function makeHarness(opts: {
 		return results;
 	};
 
-	return { fire, uiCalls };
+	return { fire, uiCalls, attentionEvents };
 }
 
 const toolCall = (toolName: string, input: Record<string, unknown>) => ({
@@ -232,6 +240,57 @@ describe("terminal risky-command confirmation", () => {
 		expect(customShown).toBe(true);
 		expect(result).toMatchObject({ block: true });
 		expect(h.uiCalls).toHaveLength(0);
+	});
+});
+
+describe("herdr risky-command attention", () => {
+	const active = { name: "herdr:blocked", data: { active: true, label: "Risky command approval" } };
+	const inactive = { name: "herdr:blocked", data: { active: false } };
+	const payload = (event: string) => event === "tool_call"
+		? toolCall("bash", { command: "echo 'reboot PRIVATE_TEST_TEXT'" })
+		: { command: "echo 'reboot PRIVATE_TEST_TEXT'" };
+
+	for (const event of ["tool_call", "user_bash"]) {
+		for (const approved of [true, false, undefined]) {
+			test(`${event}: attention surrounds the dialog and clears on ${approved}`, async () => {
+				const h = makeHarness({ hasUI: true, mode: "tui", custom: async () => {
+					expect(h.attentionEvents).toEqual([active]);
+					return approved;
+				} });
+				await h.fire(event, payload(event));
+				expect(h.attentionEvents).toEqual([active, inactive]);
+			});
+		}
+
+		test(`${event}: a failed dialog clears attention before propagating its error`, async () => {
+			const error = new Error("dialog failed");
+			const h = makeHarness({ hasUI: true, mode: "tui", custom: async () => { throw error; } });
+			const result = await h.fire(event, payload(event)).catch((err) => err);
+			expect(result).toBe(error);
+			expect(h.attentionEvents).toEqual([active, inactive]);
+		});
+
+		test(`${event}: RPC and headless sessions do not report pane attention`, async () => {
+			for (const hasUI of [true, false]) {
+				const h = makeHarness({ hasUI, mode: "rpc" });
+				await h.fire(event, payload(event));
+				expect(h.attentionEvents).toEqual([]);
+			}
+		});
+	}
+
+	test("notification failures cannot change the user's rejection", async () => {
+		const h = makeHarness({ hasUI: true, mode: "tui", emitError: true, custom: async () => false });
+		const [result] = await h.fire("tool_call", payload("tool_call"));
+		expect(result).toMatchObject({ block: true, reason: "Blocked by user" });
+		expect(h.attentionEvents).toEqual([active, inactive]);
+	});
+
+	test("safe commands and protected-path blocks do not report an approval prompt", async () => {
+		const h = makeHarness({ hasUI: true, mode: "tui" });
+		await h.fire("tool_call", toolCall("bash", { command: "echo hello" }));
+		await h.fire("tool_call", toolCall("bash", { command: "cat .env" }));
+		expect(h.attentionEvents).toEqual([]);
 	});
 });
 

@@ -3,7 +3,7 @@
  * Risky commands require interactive confirmation; credential paths are always
  * blocked for agent tools so their contents cannot enter a model transcript.
  */
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { canonicalPath } from "./security/paths.ts";
 import { confirmRiskyCommand } from "./security/command-confirm.ts";
 
@@ -113,6 +113,27 @@ function protectedPaths(
 }
 
 export default function securityGate(pi: ExtensionAPI) {
+	async function confirmWithAttention(ctx: ExtensionContext, command: string, hits: string[]) {
+		const reportAttention = (active: boolean) => {
+			if (ctx.mode !== "tui") return;
+			try {
+				// Use herdr's managed integration and existing notification settings.
+				// Never include command text in an attention notification.
+				pi.events.emit("herdr:blocked", active
+					? { active: true, label: "Risky command approval" }
+					: { active: false });
+			} catch {
+				// Notifications are best-effort and must not affect the safety gate.
+			}
+		};
+		reportAttention(true);
+		try {
+			return await confirmRiskyCommand(ctx, command, hits);
+		} finally {
+			reportAttention(false);
+		}
+	}
+
 	pi.on("tool_call", async (event, ctx) => {
 		if (event.toolName === "bash") {
 			const command =
@@ -131,7 +152,7 @@ export default function securityGate(pi: ExtensionAPI) {
 					reason: `Blocked risky command (no UI to confirm): ${hits.join(", ")}`,
 				};
 			}
-			const ok = await confirmRiskyCommand(ctx, command, hits);
+			const ok = await confirmWithAttention(ctx, command, hits);
 			if (!ok) return { block: true, reason: "Blocked by user" };
 			return undefined;
 		}
@@ -178,7 +199,7 @@ export default function securityGate(pi: ExtensionAPI) {
 				},
 			};
 		}
-		const ok = await confirmRiskyCommand(ctx, event.command, hits);
+		const ok = await confirmWithAttention(ctx, event.command, hits);
 		if (!ok) {
 			return {
 				result: {

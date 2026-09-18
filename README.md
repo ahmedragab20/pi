@@ -49,6 +49,9 @@ Risky-command confirmations stay within 80% of terminal height. Use `↑`/`↓`,
 `Page Up`/`Page Down`, or `Home`/`End` to scroll the complete command; `Tab` or
 `←`/`→` chooses No/Yes, and `Enter` confirms. No is selected by default;
 `Esc` or `Ctrl+C` cancels. Approval controls stay visible while scrolling.
+While a risky-command dialog is open, Pi reports “Risky command approval” to
+herdr's attention state, clearing it when the dialog closes. Background alerts
+follow your existing herdr notification/sound settings; command text is not sent.
 
 Native compaction remains enabled and deferred tools remain available. Optional
 worker-model and context-efficiency features are disabled by default; custom
