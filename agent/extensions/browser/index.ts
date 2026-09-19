@@ -17,6 +17,10 @@ import {
   validateBrowserArgs,
   validateBrowserPath,
 } from "./policy.ts";
+import {
+  agentBrowserRenderers,
+  browserVerifyRenderers,
+} from "./renderers.ts";
 
 const execFileAsync = promisify(execFile);
 const DEFAULT_TIMEOUT_MS = 30_000;
@@ -325,6 +329,7 @@ export function createBrowserExtension(options: { readOnly: boolean }) {
       description: readOnly
         ? "Read-only headless browser checks via agent-browser: open, snapshot (-i -c; --delta prints only changes), read, get, wait, scroll, screenshot (inline image; --if-changed skips unchanged), console, errors, network requests, diff snapshot, diff screenshot --baseline <png>, set viewport|device|media. action=batch runs steps in one call and stops at the first failure. Clicking, typing, and uploads are unavailable. Absolute HTTP(S) URLs only; screenshots go to the workspace or browser-artifacts."
         : "Headless browser via agent-browser. Cheapest loop: open, snapshot -i -c, act on @refs, snapshot --delta (prints only what changed). read for text pages; screenshot only when pixels matter (inline image; --if-changed skips unchanged, --annotate labels refs). Verify with console, errors, network requests, diff snapshot, diff screenshot --baseline <png>; set viewport|device|media for responsive checks. action=batch runs steps in one call and stops at the first failure. Clicks and typing run without prompts. Set consequential=true for real side effects (submit, buy, send, log in, delete, publish): the user confirms unless the page is a local dev server. Uploads to non-local pages always confirm. No JavaScript eval, cookies/state, or global CLI flags. Sessions persist for this pi session; close when done.",
+      ...(readOnly ? browserVerifyRenderers : agentBrowserRenderers),
       parameters: Type.Object({
         action: Type.Union(
           [...agentBrowserActions, "batch"].map((value) => Type.Literal(value)),

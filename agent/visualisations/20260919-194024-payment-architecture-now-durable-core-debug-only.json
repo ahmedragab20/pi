@@ -1,0 +1,321 @@
+{
+	"title": "Payment architecture now — durable core, debug-only execution",
+	"kind": "flowchart",
+	"groups": [
+		{
+			"id": "entry",
+			"label": "App composition"
+		},
+		{
+			"id": "engine",
+			"label": ":core — owns order and financial truth"
+		},
+		{
+			"id": "storage",
+			"label": ":app — durable Android ownership"
+		},
+		{
+			"id": "adapters",
+			"label": "Independent connector boundaries"
+		},
+		{
+			"id": "flows",
+			"label": "Two capability-selected payment policies"
+		}
+	],
+	"nodes": [
+		{
+			"id": "release",
+			"label": "Release: checkout unavailable",
+			"group": "entry",
+			"note": "No payment adapter, simulator or web board installed."
+		},
+		{
+			"id": "ui",
+			"label": "Debug customer checkout / order UI",
+			"group": "entry"
+		},
+		{
+			"id": "board",
+			"label": "Debug local web control board",
+			"group": "entry",
+			"note": "Observes the same order; supplies simulated outcomes."
+		},
+		{
+			"id": "coord",
+			"label": "OrderCoordinator",
+			"group": "engine",
+			"note": "Process-lifetime owner; serializes one selected order."
+		},
+		{
+			"id": "qualify",
+			"label": "Qualification gates",
+			"group": "engine",
+			"note": "Capabilities, recipe validation, readiness and simulation parity."
+		},
+		{
+			"id": "reducer",
+			"label": "OrderStateMachine",
+			"group": "engine",
+			"note": "Inputs → next state + effects; connectors do not decide order outcomes."
+		},
+		{
+			"id": "ledger",
+			"label": "RoomOrderStore: order + audit + outbox",
+			"group": "storage",
+			"note": "One atomic transaction; write failure blocks effects."
+		},
+		{
+			"id": "keepalive",
+			"label": "Process scope + foreground service",
+			"group": "storage",
+			"note": "Work survives screen recreation."
+		},
+		{
+			"id": "outbox",
+			"label": "Immutable upload intents",
+			"group": "storage",
+			"note": "Stored locally; no uploader yet."
+		},
+		{
+			"id": "pay",
+			"label": "PaymentConnector",
+			"group": "adapters",
+			"note": "execute / observations / read-only reconcile; debug binds DemoPaymentConnector."
+		},
+		{
+			"id": "machine",
+			"label": "OrderMachine",
+			"group": "adapters",
+			"note": "Validate recipes, fresh readiness, correlated cup outcomes; debug binds DemoOrderMachine."
+		},
+		{
+			"id": "future",
+			"label": "Production adapters: not implemented / qualified",
+			"group": "adapters",
+			"note": "NearPay, Rabbah and MDB remain candidates, not active integrations."
+		},
+		{
+			"id": "choose",
+			"label": "Select supported payment flow",
+			"group": "flows",
+			"note": "Unknown capabilities cannot enable checkout."
+		},
+		{
+			"id": "prepaid",
+			"label": "PrepaidBasket: collect frozen total",
+			"group": "flows"
+		},
+		{
+			"id": "prepcups",
+			"label": "Dispense paid cups sequentially",
+			"group": "flows"
+		},
+		{
+			"id": "refund",
+			"label": "Failed / unstarted paid cup → exact-price refund",
+			"group": "flows",
+			"note": "Accepted is pending; only provider evidence confirms refund."
+		},
+		{
+			"id": "auth",
+			"label": "AuthorizeEachCup: approve one cup",
+			"group": "flows",
+			"note": "Approval is not a charge."
+		},
+		{
+			"id": "authvend",
+			"label": "Dispense approved cup",
+			"group": "flows"
+		},
+		{
+			"id": "complete",
+			"label": "Complete(price) or Complete(0)",
+			"group": "flows",
+			"note": "Made cup: confirm payment; failed/unstarted cup: confirm approval release."
+		},
+		{
+			"id": "next",
+			"label": "Wait for settlement / release confirmation",
+			"group": "flows"
+		},
+		{
+			"id": "unknown",
+			"label": "Uncertain money / drink → block new dispatch",
+			"group": "engine",
+			"note": "Do not assume decline, repeat commands, or refund an uncertain drink."
+		}
+	],
+	"edges": [
+		{
+			"from": "ui",
+			"to": "coord",
+			"label": "checkout / customer intent; observe state"
+		},
+		{
+			"from": "board",
+			"to": "coord",
+			"label": "observe ledger / control intent"
+		},
+		{
+			"from": "board",
+			"to": "pay",
+			"label": "simulated payment evidence"
+		},
+		{
+			"from": "board",
+			"to": "machine",
+			"label": "simulated preparation evidence"
+		},
+		{
+			"from": "keepalive",
+			"to": "coord",
+			"label": "owns lifetime"
+		},
+		{
+			"from": "coord",
+			"to": "qualify",
+			"label": "before checkout / recovery / effects"
+		},
+		{
+			"from": "qualify",
+			"to": "reducer",
+			"label": "qualified inputs"
+		},
+		{
+			"from": "reducer",
+			"to": "ledger",
+			"label": "coordinator persists next revision FIRST"
+		},
+		{
+			"from": "ledger",
+			"to": "outbox",
+			"label": "same transaction"
+		},
+		{
+			"from": "ledger",
+			"to": "pay",
+			"label": "THEN execute committed payment effect"
+		},
+		{
+			"from": "ledger",
+			"to": "machine",
+			"label": "THEN dispatch committed cup"
+		},
+		{
+			"from": "pay",
+			"to": "coord",
+			"label": "correlated financial evidence"
+		},
+		{
+			"from": "machine",
+			"to": "coord",
+			"label": "readiness / physical evidence"
+		},
+		{
+			"from": "qualify",
+			"to": "choose",
+			"label": "supported policy"
+		},
+		{
+			"from": "choose",
+			"to": "prepaid",
+			"label": "requires per-cup refunds"
+		},
+		{
+			"from": "prepaid",
+			"to": "prepcups",
+			"label": "collection confirmed"
+		},
+		{
+			"from": "prepcups",
+			"to": "refund",
+			"label": "proven failure or never dispatched"
+		},
+		{
+			"from": "choose",
+			"to": "auth",
+			"label": "per-cup approval flow"
+		},
+		{
+			"from": "auth",
+			"to": "authvend",
+			"label": "approval confirmed"
+		},
+		{
+			"from": "authvend",
+			"to": "complete",
+			"label": "physical outcome"
+		},
+		{
+			"from": "complete",
+			"to": "next",
+			"label": "provider evidence required"
+		},
+		{
+			"from": "next",
+			"to": "auth",
+			"label": "next cup, when machine ready"
+		},
+		{
+			"from": "coord",
+			"to": "unknown",
+			"label": "timeout / transport loss / restart uncertainty"
+		}
+	],
+	"notes": [
+		{
+			"ref": "release",
+			"text": "This checkout has a real durable order engine, but no real-money payment path. Debug always pairs simulated payment with simulated hardware; mixed real/simulated boundaries are rejected."
+		},
+		{
+			"ref": "coord",
+			"text": "Orders freeze device-minted cup IDs, recipes, choices and integer-halalah prices. Payment operations have stable IDs, exact amounts, parent relationships and provider references."
+		},
+		{
+			"ref": "ledger->pay",
+			"text": "Persist-before-effects is the money-safety boundary. Provider adapters own protocol/session handling, correlation, deduplication, currency scaling and reconciliation—not a second financial ledger."
+		},
+		{
+			"ref": "refund",
+			"text": "Pending refunds need not stop remaining prepaid cups if fresh machine readiness permits. A refused refund remains due and needs review."
+		},
+		{
+			"ref": "complete",
+			"text": "A cup observed at pickup is already made: per-cup completion starts then, without waiting for customer collection. Later faults cannot erase that evidence."
+		},
+		{
+			"ref": "unknown",
+			"text": "Unknown physical outcome leaves that cup unresolved, marks remaining queued cups NotStarted, and requests exact-price refunds for those prepaid unstarted cups. Unknown funding is not a decline."
+		},
+		{
+			"ref": "unknown",
+			"text": "Restart converts outstanding commands and unused approvals to uncertainty without replay. Payment reconciliation is read-only; physical reconciliation and human resolution remain future work."
+		},
+		{
+			"ref": "machine",
+			"text": "The existing TCN VendStateMachine/MachineSession path remains separate from the debug order adapter. A future production OrderMachine must use the single machine-session owner; TCN command acknowledgment is not proof of a drink."
+		},
+		{
+			"ref": "future",
+			"text": "The per-cup policy accommodates approval/result-style providers but is not an MDB implementation or proof a reader supports the required behavior. Real adapters need hardware/provider qualification."
+		},
+		{
+			"ref": "outbox",
+			"text": "Backend upload is unfinished and is not in the vend path. Leaving the customer screen does not discard unresolved financial ownership."
+		}
+	],
+	"assumptions": [
+		"“Now” means the current local checkout, not archived Jetinno designs or a future production deployment.",
+		"The payment-policy branches describe the implemented core behavior; their calls still pass through the coordinator and durable ledger shown above."
+	],
+	"sources": [
+		"AGENTS.md",
+		"docs/adr/ADR-0002-durable-order-orchestration.md",
+		"app-machine/core/src/main/kotlin/com/gahwajix/brew/core/order/OrderPorts.kt",
+		"app-machine/core/src/main/kotlin/com/gahwajix/brew/core/order/OrderCoordinator.kt",
+		"app-machine/app/src/main/kotlin/com/gahwajix/brew/app/data/OrderRecord.kt",
+		"app-machine/app/src/debug/kotlin/com/gahwajix/brew/app/OrderComposition.kt",
+		"app-machine/app/src/release/kotlin/com/gahwajix/brew/app/OrderComposition.kt"
+	]
+}

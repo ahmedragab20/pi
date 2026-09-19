@@ -14,6 +14,7 @@ function makePi() {
 		| { handler: (args: string, ctx: unknown) => Promise<void> }
 		| undefined;
 	const pi = {
+		events: { on: () => () => {}, emit() {} },
 		on(name: string, handler: EventHandler) {
 			const list = handlers.get(name) ?? [];
 			list.push(handler);

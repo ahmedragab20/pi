@@ -5,6 +5,7 @@
  */
 
 import { describe, expect, test } from "bun:test";
+import { visibleWidth } from "../npm/node_modules/@earendil-works/pi-tui/dist/index.js";
 import btwExtension, {
 	BTW_SYSTEM_PROMPT,
 	BtwHistory,
@@ -351,6 +352,23 @@ describe("extractAssistantText", () => {
 });
 
 describe("/btw command", () => {
+	test("fits a narrow, short terminal without forcing a minimum size", async () => {
+		let rendered: string[] = [];
+		const harness = makeHarness({
+			custom: async (factory) => {
+				const panel = factory(
+					{ requestRender() {}, terminal: { rows: 6, columns: 12 } },
+					{ fg: (_c: string, text: string) => text, bold: (text: string) => text },
+					{},
+					() => {},
+				) as { render(width: number): string[] };
+				rendered = panel.render(12);
+			},
+		});
+		await harness.run("a-long-unbroken-question-that-must-not-overflow");
+		expect(rendered.length <= 6).toBe(true);
+		expect(rendered.every((line) => visibleWidth(line) <= 12)).toBe(true);
+	});
 	test("registers the command", () => {
 		const harness = makeHarness();
 		expect(harness.commands.has("btw")).toBe(true);

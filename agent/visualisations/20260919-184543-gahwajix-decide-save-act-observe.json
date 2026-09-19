@@ -1,0 +1,179 @@
+{
+	"title": "GahwajiX: decide → save → act → observe",
+	"kind": "flowchart",
+	"nodes": [
+		{
+			"id": "screen",
+			"label": "Customer screen",
+			"group": "views",
+			"note": "Shows progress; sends order/cancel requests."
+		},
+		{
+			"id": "board",
+			"label": "Demo control board",
+			"group": "views",
+			"note": "Debug-only browser controls, not a second engine."
+		},
+		{
+			"id": "manager",
+			"label": "Order manager",
+			"group": "core",
+			"note": "OrderCoordinator — organises the work."
+		},
+		{
+			"id": "rules",
+			"label": "Rulebook",
+			"group": "core",
+			"note": "OrderStateMachine — decides what may happen next."
+		},
+		{
+			"id": "memory",
+			"label": "Permanent memory",
+			"group": "storage",
+			"note": "Room: order + audit history + outbox."
+		},
+		{
+			"id": "payment",
+			"label": "Payment adapter",
+			"group": "adapters",
+			"note": "PaymentConnector contract; simulator today."
+		},
+		{
+			"id": "machine",
+			"label": "Drink adapter",
+			"group": "adapters",
+			"note": "OrderMachine contract; simulator today."
+		}
+	],
+	"edges": [
+		{
+			"from": "screen",
+			"to": "manager",
+			"label": "Order / cancel"
+		},
+		{
+			"from": "manager",
+			"to": "rules",
+			"label": "1. Ask what is allowed"
+		},
+		{
+			"from": "rules",
+			"to": "manager",
+			"label": "New state + intended actions"
+		},
+		{
+			"from": "manager",
+			"to": "memory",
+			"label": "2. Save BEFORE acting"
+		},
+		{
+			"from": "memory",
+			"to": "manager",
+			"label": "Reload after restart"
+		},
+		{
+			"from": "manager",
+			"to": "payment",
+			"label": "3. Request payment / settlement"
+		},
+		{
+			"from": "manager",
+			"to": "machine",
+			"label": "3. Request one cup"
+		},
+		{
+			"from": "payment",
+			"to": "manager",
+			"label": "4. Payment evidence"
+		},
+		{
+			"from": "machine",
+			"to": "manager",
+			"label": "4. Readiness + cup evidence"
+		},
+		{
+			"from": "manager",
+			"to": "screen",
+			"label": "Updated saved progress"
+		},
+		{
+			"from": "manager",
+			"to": "board",
+			"label": "Same saved progress"
+		},
+		{
+			"from": "board",
+			"to": "payment",
+			"label": "Simulate payment results"
+		},
+		{
+			"from": "board",
+			"to": "machine",
+			"label": "Simulate machine events"
+		}
+	],
+	"groups": [
+		{
+			"id": "views",
+			"label": "What people interact with"
+		},
+		{
+			"id": "core",
+			"label": ":core — the reusable order engine",
+			"note": "Pure Kotlin; no Android or vendor SDK dependencies."
+		},
+		{
+			"id": "storage",
+			"label": ":app — durable local storage"
+		},
+		{
+			"id": "adapters",
+			"label": ":connector-fake — current debug implementations",
+			"note": "Separate contracts for money and drink preparation."
+		}
+	],
+	"notes": [
+		{
+			"ref": "manager",
+			"text": "One manager owns the order, with one physical cup dispatched at a time. Its process scope and foreground service keep work independent of screen recreation."
+		},
+		{
+			"ref": "rules",
+			"text": "The rulebook plans; it does not call hardware or write databases. It distinguishes payment approval, confirmed charges, drinks made, refunds and unknown outcomes. Conflicting evidence blocks unsafe work instead of replacing established truth."
+		},
+		{
+			"ref": "manager->memory",
+			"text": "The order, audit and outbox snapshot commit together before external commands run. A failed save blocks further work. On restart, uncertain in-flight work is retained as unknown—not blindly sent again."
+		},
+		{
+			"ref": "memory",
+			"text": "The outbox is a queue for future uploads, not a working cloud connection. No uploader ships yet; this order loop runs locally."
+		},
+		{
+			"ref": "board",
+			"text": "The board supplies simulated evidence through the adapters. Both it and the kiosk read the same engine state; neither invents its own payment totals or drink outcomes."
+		},
+		{
+			"ref": "adapters",
+			"text": "Today these adapters charge no real money and move no real hardware. Release installs no order payment environment and leaves checkout unavailable."
+		},
+		{
+			"ref": "machine",
+			"text": "The separate single-cup TCN path already exists, but a production OrderMachine bridge is not wired/qualified. It must reuse the single machine session; the machine controller—not this app—owns physical safety interlocks."
+		}
+	],
+	"assumptions": [
+		"This is the multi-cup order architecture we just hardened, not a diagram of every screen or the older single-cup vend implementation.",
+		"Numbered arrows describe each decision cycle, not a fixed payment sequence: prepaid-basket and per-cup-authorization flows use the same engine.",
+		"Demo administration, detailed threading and future backend integrations are omitted to keep the main responsibilities visible."
+	],
+	"sources": [
+		"docs/adr/ADR-0002-durable-order-orchestration.md",
+		"app-machine/core/src/main/kotlin/com/gahwajix/brew/core/order/OrderCoordinator.kt",
+		"app-machine/core/src/main/kotlin/com/gahwajix/brew/core/order/OrderPorts.kt",
+		"app-machine/app/src/main/kotlin/com/gahwajix/brew/app/data/OrderRecord.kt",
+		"app-machine/app/src/main/kotlin/com/gahwajix/brew/app/AppContainer.kt",
+		"app-machine/app/src/debug/kotlin/com/gahwajix/brew/app/OrderComposition.kt",
+		"app-machine/app/src/release/kotlin/com/gahwajix/brew/app/OrderComposition.kt"
+	]
+}

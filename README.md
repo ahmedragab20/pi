@@ -9,8 +9,9 @@ lead-owned and direct; delegate only substantial, independent, bounded chores.
 `agent/agents/worker.md` pins `openai-codex/gpt-5.6-luna` at medium thinking,
 40 turns plus two wrap-up turns. No nested delegation or automatic model fallback.
 Global settings allow one background and one foreground spawn slot; keep at most two
-worker jobs active, including resumes. `/agents` remains available; FleetView, widgets,
-agent-mention routing, and scheduling are off.
+worker jobs active, including resumes. `/agents` remains available; FleetView, native
+worker widgets, agent-mention routing, and scheduling are off. The shared UI row
+shows worker lifecycle events without enabling those extra surfaces.
 
 Workers use `isolated: false` with only the security gate active, and no inherited
 skills, context files, or parent conversation. Frontmatter wins over caller parameters.
@@ -36,14 +37,22 @@ Canonical check: `npm run check --prefix agent/npm`.
 
 ## Daily controls
 
-`Ctrl+P` cycles lead models; `Shift+Tab` changes thinking; `Ctrl+C` interrupts;
-`Ctrl+X` clears/exits; `Esc` enters vim normal mode; `Ctrl+G` opens nvim; `@file`
-references a file; `!cmd` runs a shell command; `Alt+Enter` queues a follow-up;
-`Ctrl+V` pastes an image; `alt+h/j/k/l` moves in the editor. Use `/tree`, `/fork`,
-`/compact`, `/review`, `/finish`, `/plan`, `/diffing`, `/fast`, `/btw`, `/visualise`, and
-`/agents` as appropriate. `pi -c` resumes the latest session; `pi -r` browses sessions.
+`Ctrl+P` cycles lead models; `Shift+Tab` changes thinking level; `Ctrl+T`/`Alt+T`
+toggles thinking display; `Ctrl+O` expands tool output. `Ctrl+C` clears the editor
+then exits if empty; `Ctrl+D` exits from an empty editor; `Ctrl+X` copies a message.
+`Esc` enters Vim normal mode, then passes through to Pi's interrupt action when
+already in normal mode. `Ctrl+G` opens the external editor; `@file` references a
+file; `!cmd` runs a shell command; `Alt+Enter` queues a follow-up; `Ctrl+V` pastes an
+image; `alt+h/j/k/l` moves in the editor. Use `/tree`, `/fork`, `/compact`, `/review`,
+`/finish`, `/plan`, `/diffing`, `/fast`, `/btw`, `/visualise`, and `/agents` as appropriate. `pi -c` resumes the latest session; `pi -r` browses sessions.
 Astra/Sol 1M model aliases and lens/vim integrations remain enabled.
 `/commit` drafts a message; `/commit-push` explicitly requests a scoped commit and push.
+
+The native UI uses one activity row, a prioritized footer, and compact tool output.
+Thinking visibility follows the saved preference. `/ui` shows full status and configured controls;
+`/ui preview` opens synthetic examples; `/todos` is scrollable; `/timing` shows elapsed
+time. See [the UI guide](agent/UI.md) for design conventions, ownership, verification,
+activation, rollback, and compatibility limits.
 
 Risky-command confirmations stay within 80% of terminal height. Use `↑`/`↓`,
 `Page Up`/`Page Down`, or `Home`/`End` to scroll the complete command; `Tab` or

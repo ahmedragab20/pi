@@ -3,41 +3,44 @@ import type {
 	ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 
-const STATUS_KEY = "working-timer";
+import { elapsedText } from "./ui/activity.ts";
+import { UI_SNAPSHOT_REQUEST, UI_TIMING } from "./ui/events.ts";
 
-export function formatElapsed(milliseconds: number): string {
-	const totalSeconds = Math.max(0, Math.floor(milliseconds / 1000));
-	const seconds = totalSeconds % 60;
-	const totalMinutes = Math.floor(totalSeconds / 60);
-	const minutes = totalMinutes % 60;
-	const hours = Math.floor(totalMinutes / 60);
-	const clock = `${minutes.toString().padStart(2, "0")}:${seconds.toString().padStart(2, "0")}`;
-	return hours > 0 ? `${hours}:${clock}` : clock;
-}
+const STATUS_KEY = "working-timer";
+export const formatElapsed = elapsedText;
 
 export default function workingTimer(pi: ExtensionAPI): void {
 	let startedAt: number | undefined;
 	let lastElapsed: number | undefined;
+	let unsubscribe: (() => void) | undefined;
+	const publish = () => pi.events.emit(UI_TIMING, { startedAt, lastElapsed });
 
 	pi.on("session_start", (_event, ctx) => {
 		startedAt = undefined;
 		lastElapsed = undefined;
 		// Clear status left by older versions of this extension after /reload.
 		ctx.ui.setStatus(STATUS_KEY, undefined);
+		unsubscribe?.();
+		unsubscribe = pi.events.on(UI_SNAPSHOT_REQUEST, publish);
+		publish();
 	});
 
 	pi.on("agent_start", () => {
 		if (startedAt === undefined) startedAt = Date.now();
+		publish();
 	});
 
 	pi.on("agent_settled", () => {
 		if (startedAt === undefined) return;
 		lastElapsed = Date.now() - startedAt;
 		startedAt = undefined;
+		publish();
 	});
 
 	pi.on("session_shutdown", () => {
 		startedAt = undefined;
+		unsubscribe?.();
+		unsubscribe = undefined;
 	});
 
 	pi.registerCommand("timing", {

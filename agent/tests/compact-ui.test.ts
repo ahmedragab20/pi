@@ -4,6 +4,7 @@ import compactFooterExtension, {
 	latestCacheHitPercent,
 } from "../extensions/compact-footer.ts";
 import todoExtension from "../extensions/todo.ts";
+import { visibleWidth } from "../npm/node_modules/@earendil-works/pi-tui/dist/index.js";
 
 type EventHandler = (
 	event: unknown,
@@ -22,9 +23,9 @@ const plainTheme: TestTheme = {
 function makePi() {
 	const handlers = new Map<string, EventHandler[]>();
 	const listeners = new Map<string, ((event: unknown) => void)[]>();
-	const tools: Record<string, { execute: Function }> = {};
+	const tools: Record<string, { execute: Function; renderResult: Function }> = {};
 	let eventsApi: {
-		on: (name: string, fn: (event: unknown) => void) => void;
+		on: (name: string, fn: (event: unknown) => void) => () => void;
 		emit: (name: string, event: unknown) => void;
 	};
 	eventsApi = {
@@ -32,6 +33,7 @@ function makePi() {
 			const list = listeners.get(name) ?? [];
 			list.push(fn);
 			listeners.set(name, list);
+			return () => { listeners.set(name, (listeners.get(name) ?? []).filter((entry) => entry !== fn)); };
 		},
 		emit(name, event) {
 			for (const fn of listeners.get(name) ?? []) fn(event);
@@ -44,7 +46,7 @@ function makePi() {
 			handlers.set(name, list);
 		},
 		events: eventsApi,
-		registerTool(tool: { name: string; execute: Function }) {
+		registerTool(tool: { name: string; execute: Function; renderResult: Function }) {
 			tools[tool.name] = tool;
 		},
 		registerCommand() {},
@@ -68,9 +70,11 @@ function makeTodoCtx(widgets: Map<string, unknown>) {
 	};
 }
 
-describe("todo/agent widget (balanced compact UI)", () => {
-	test("renders one combined activity line and drops settled agents", async () => {
+describe("todo presentation ownership", () => {
+	test("publishes task progress without creating a second activity widget", async () => {
 		const { pi, handlers, tools, emit } = makePi();
+		const progress: unknown[] = [];
+		pi.events.on("harness-ui:tasks", (event) => progress.push(event));
 		todoExtension(pi as never);
 		const widgets = new Map<string, unknown>();
 		const ctx = makeTodoCtx(widgets);
@@ -89,31 +93,40 @@ describe("todo/agent widget (balanced compact UI)", () => {
 			ctx,
 		);
 
-		let factory = widgets.get("todos") as (
-			tui: unknown,
-			theme: TestTheme,
-		) => { render: (width: number) => string[] };
-		expect(typeof factory).toBe("function");
-		let lines = factory(undefined, plainTheme).render(200);
-		expect(lines).toEqual(["tasks 0/1"]);
-		expect(lines[0]).not.toContain("Inspect workspace");
-
-		emit("subagents:started", { id: "a1" });
-		factory = widgets.get("todos") as typeof factory;
-		lines = factory(undefined, plainTheme).render(200);
-		expect(lines).toEqual(["1 agent running · tasks 0/1"]);
-
-		// created after started must not downgrade running -> queued
-		emit("subagents:created", { id: "a1" });
-		factory = widgets.get("todos") as typeof factory;
-		lines = factory(undefined, plainTheme).render(200);
-		expect(lines).toEqual(["1 agent running · tasks 0/1"]);
-
-		emit("subagents:completed", { id: "a1" });
-		factory = widgets.get("todos") as typeof factory;
-		lines = factory(undefined, plainTheme).render(200);
-		expect(lines).toEqual(["tasks 0/1"]);
+		expect(widgets.get("todos")).toBeUndefined();
+		expect(progress.at(-1)).toEqual({ done: 0, total: 1, next: "Inspect workspace" });
+		emit("harness-ui:snapshot-request", {});
+		expect(progress.at(-1)).toEqual({ done: 0, total: 1, next: "Inspect workspace" });
+		await todo.execute("call-2", { action: "toggle", id: 1 }, undefined, undefined, ctx);
+		expect(progress.at(-1)).toEqual({ done: 1, total: 1, next: undefined });
+		expect(widgets.get("todos")).toBeUndefined();
 	});
+});
+
+test("todo cards expand full state, preserve results, and distinguish errors and partial updates", async () => {
+	const { pi, handlers, tools } = makePi();
+	todoExtension(pi as never);
+	const ctx = makeTodoCtx(new Map());
+	await handlers.get("session_start")![0]({}, ctx);
+	try {
+		for (let i = 1; i <= 6; i++) {
+			await tools.todo.execute(String(i), { action: "add", text: `Task ${i}: ${"path/".repeat(20)}TAIL-${i}` }, undefined, undefined, ctx);
+		}
+		const result = await tools.todo.execute("list", { action: "list" }, undefined, undefined, ctx);
+		const before = JSON.stringify(result);
+		const render = (value: unknown, expanded: boolean, isPartial = false, isError = false): string[] =>
+			tools.todo.renderResult(value, { expanded, isPartial }, plainTheme, { isError }).render(30);
+		expect(render(result, false).join(" ")).toContain("1 more");
+		expect(render(result, false).join("")).not.toContain("TAIL-6");
+		const expanded = render(result, true);
+		expect(expanded.join("")).toContain("TAIL-6");
+		expect(expanded.every((line) => visibleWidth(line) <= 30)).toBe(true);
+		expect(JSON.stringify(result)).toBe(before);
+		const failure = await tools.todo.execute("missing", { action: "toggle", id: 99 }, undefined, undefined, ctx);
+		expect(render(failure, false).join("")).toContain("✗ #99 not found");
+		expect(render(result, false, true).join("")).toContain("Updating tasks");
+		expect(render({ content: [{ type: "text", text: "failure detail" }] }, false, false, true).join("")).toContain("failure detail");
+	} finally { await handlers.get("session_shutdown")![0]({}, ctx); }
 });
 
 describe("todo reminder", () => {
@@ -198,6 +211,7 @@ describe("compact footer", () => {
 		let footerFactory: unknown;
 		const ctx = {
 			hasUI: true,
+			mode: "tui",
 			cwd: "/Users/test/.pi",
 			model: { id: "gpt-test" },
 			getContextUsage: () => ({ percent: 7.3 }),
@@ -252,12 +266,12 @@ describe("compact footer", () => {
 		const lines = footer.render(200);
 		expect(lines).toHaveLength(1);
 		expect(lines[0]).toBe(
-			".pi (main) · ctx 7.3% · cache 80.0% · gpt-test · fast · blocked: tests failing",
+			"blocked: tests failing · .pi (main) · gpt-test · ctx 7.3% · cache 80.0% · fast · /ui",
 		);
 
 		footerData.getExtensionStatuses = () => new Map();
 		expect(footer.render(200)[0]).toBe(
-			".pi (main) · ctx 7.3% · cache 80.0% · gpt-test",
+			".pi (main) · gpt-test · ctx 7.3% · cache 80.0% · /ui",
 		);
 
 		footer.dispose();

@@ -386,6 +386,7 @@ describe("compact footer × github-pr integration", () => {
 		const h = makeHarness();
 		let footerFactory: unknown;
 		const ctx = {
+			mode: "tui",
 			hasUI: true,
 			cwd: "/Users/test/.pi",
 			model: { id: "gpt-test" },
@@ -397,7 +398,7 @@ describe("compact footer × github-pr integration", () => {
 				},
 			},
 		};
-		compactFooterExtension(h.pi as never);
+		compactFooterExtension({ ...h.pi, events: { on: () => () => {}, emit() {} } } as never);
 		h.handlers.get("session_start")![0]({}, ctx);
 		const footerData = {
 			onBranchChange(_cb: () => void) {
@@ -407,10 +408,11 @@ describe("compact footer × github-pr integration", () => {
 			getExtensionStatuses: () => statuses,
 		};
 		const footer = (footerFactory as Function)(
-			undefined,
+			{ requestRender() {} },
 			plainTheme,
 			footerData,
 		) as { dispose: () => void; render: (width: number) => string[] };
+		monitors.push(footer);
 		return { footer };
 	}
 
@@ -423,7 +425,7 @@ describe("compact footer × github-pr integration", () => {
 		);
 		const line = footer.render(200)[0];
 		expect(line).toBe(
-			".pi (feature) · PR #42 · ctx 7.3% · cache — · gpt-test · fast",
+			".pi (feature) · PR #42 · gpt-test · ctx 7.3% · cache — · fast · /ui",
 		);
 		expect(line.split("fast").length - 1).toBe(1);
 		expect(line.split("PR #42").length - 1).toBe(1);
@@ -433,7 +435,7 @@ describe("compact footer × github-pr integration", () => {
 	test("missing PR status leaves the footer layout without a PR segment", () => {
 		const { footer } = makeFooter(new Map([["fast-mode", "fast"]]));
 		const line = footer.render(200)[0];
-		expect(line).toBe(".pi (feature) · ctx 7.3% · cache — · gpt-test · fast");
+		expect(line).toBe(".pi (feature) · gpt-test · ctx 7.3% · cache — · fast · /ui");
 		expect(line.includes("PR #")).toBe(false);
 		expect(line.split("fast").length - 1).toBe(1);
 		footer.dispose();
@@ -442,7 +444,7 @@ describe("compact footer × github-pr integration", () => {
 	test("empty statuses omit both fast and PR", () => {
 		const { footer } = makeFooter(new Map());
 		const line = footer.render(200)[0];
-		expect(line).toBe(".pi (feature) · ctx 7.3% · cache — · gpt-test");
+		expect(line).toBe(".pi (feature) · gpt-test · ctx 7.3% · cache — · /ui");
 		expect(line.includes("fast")).toBe(false);
 		expect(line.includes("PR #")).toBe(false);
 		footer.dispose();

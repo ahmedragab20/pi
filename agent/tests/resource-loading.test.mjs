@@ -64,6 +64,7 @@ test("resource resolution preserves browser and disables only selected resources
 		"vision-router.ts",
 		"efficiency",
 		"diffing",
+		"ui",
 	]) {
 		assert.ok(
 			enabled.some((p) => isExtension(p, name)),
@@ -106,6 +107,10 @@ test("real extension loading retains browser, review, and deferred tools", {
 	await loader.reload();
 	const { extensions, errors } = loader.getExtensions();
 	assert.deepEqual(errors, []);
+	const ui = extensions.find((extension) => isExtension(extension.path, "ui"));
+	assert.ok(ui, "unified UI loads through normal resource discovery");
+	assert.equal(ui.tools.size, 0, "presentation must not override tools");
+	assert.ok(ui.commands.has("ui"));
 	const attention = extensions.find((extension) => isExtension(extension.path, "question-attention.ts"));
 	assert.ok(attention, "question attention loads through normal discovery");
 	assert.equal(attention.tools.size, 0, "attention must not replace the question tool");
@@ -172,6 +177,19 @@ test("real question tool brackets herdr attention for answer, cancellation, and 
 		assert.equal(reports.length, 2);
 		events.clear();
 	}
+});
+
+test("vision presentation distinguishes errors, cancellation, and consumed jobs", async () => {
+	const { visionActivity } = await jiti.import(new URL("../extensions/vision-router.ts", import.meta.url).href);
+	const abort = new AbortController();
+	const job = { status: "running", startedAt: 100, abort };
+	assert.deepEqual(visionActivity(job), { id: "vision", startedAt: 100, state: "running", label: "Describing images" });
+	assert.equal(visionActivity({ ...job, status: "error" }).state, "error");
+	assert.equal(visionActivity({ ...job, status: "done" }).state, "success");
+	abort.abort();
+	assert.equal(visionActivity({ ...job, status: "done" }).state, "cancelled");
+	assert.deepEqual(visionActivity({ ...job, consumed: true }), { id: "vision", remove: true });
+	assert.deepEqual(visionActivity(undefined), { id: "vision", remove: true });
 });
 
 test("the worker allowlist activates the real headless safety gate", {

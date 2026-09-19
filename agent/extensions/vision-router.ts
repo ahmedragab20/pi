@@ -33,6 +33,9 @@ import type {
 } from "@earendil-works/pi-coding-agent";
 import type { Component } from "@earendil-works/pi-tui";
 import { Text, VStack } from "@earendil-works/pi-tui";
+import { keyHint } from "@earendil-works/pi-coding-agent";
+import { liveText, statusText, toolHeader } from "./ui/presentation.ts";
+import { UI_ACTIVITY, UI_SNAPSHOT_REQUEST, type ActivityUpdate } from "./ui/events.ts";
 import {
 	IMAGE_CHIP,
 	PASTED_MARKER,
@@ -62,6 +65,7 @@ type VisionJob = {
 	userText: string;
 	cwd: string;
 	startedAt: number;
+	endedAt?: number;
 	abort: AbortController;
 	promise: Promise<{ text: string; model: string } | null>;
 	result?: { text: string; model: string } | null;
@@ -84,7 +88,7 @@ type ThemeFg = Pick<Theme, "fg" | "bold">;
 const jobs = new Map<number, VisionJob>();
 let jobSeq = 0;
 let beat: ReturnType<typeof setInterval> | null = null;
-let uiRef: ExtensionContext["ui"] | undefined;
+let activitySink: ((activity: ActivityUpdate) => void) | undefined;
 
 function getPiInvocation(args: string[]): { command: string; args: string[] } {
 	const currentScript = process.argv[1];
@@ -179,31 +183,21 @@ async function describeImages(
 	return null;
 }
 
-function chromeLine(job: VisionJob): string {
-	const elapsed = formatElapsed(job.startedAt);
-	if (job.status === "running") return `◐ vision  describing  ${elapsed}`;
-	if (job.status === "done")
-		return `✓ vision  ${job.result?.model ?? ""}  ${elapsed}`.trim();
-	return `✗ vision  ${elapsed}`;
+export function visionActivity(job: Pick<VisionJob, "status" | "consumed" | "abort" | "startedAt"> | undefined): ActivityUpdate {
+	if (!job || job.consumed) return { id: "vision", remove: true };
+	if (job.abort.signal.aborted) {
+		return { id: "vision", startedAt: job.startedAt, state: "cancelled", label: "Vision cancelled" };
+	}
+	const presentation = {
+		running: { state: "running", label: "Describing images" },
+		done: { state: "success", label: "Vision ready" },
+		error: { state: "error", label: "Vision failed" },
+	} as const;
+	return { id: "vision", startedAt: job.startedAt, ...presentation[job.status] };
 }
 
 function paintChrome(job: VisionJob | undefined): void {
-	const ui = uiRef;
-	if (!ui) return;
-	try {
-		if (!job || job.consumed) {
-			ui.setWidget("vision", undefined);
-			ui.setStatus("vision", undefined);
-			ui.setWorkingMessage();
-			return;
-		}
-		const msg = chromeLine(job);
-		ui.setWidget("vision", [msg], { placement: "aboveEditor" });
-		ui.setStatus("vision", msg);
-		if (job.status === "running") ui.setWorkingMessage(msg);
-	} catch {
-		/* ignore */
-	}
+	activitySink?.(visionActivity(job));
 }
 
 function startBeat(): void {
@@ -323,35 +317,39 @@ function preview(text: string, max = 240): string {
 }
 
 function visionCard(theme: ThemeFg, id: number, expanded: boolean): Component {
-	const job = jobs.get(id);
-	if (!job) return new VStack();
-	const elapsed = formatElapsed(job.startedAt);
-	const names = job.files.map((f) => path.basename(f.filePath)).join(", ");
-	let header: string;
-	if (job.status === "running") {
-		header = `${theme.fg("warning", "◐")} ${theme.fg("toolTitle", theme.bold("vision"))} ${theme.fg("warning", `describing  ${elapsed}`)}`;
-	} else if (job.status === "done") {
-		header = `${theme.fg("success", "✓")} ${theme.fg("toolTitle", theme.bold("vision"))}${theme.fg("muted", ` (${job.result?.model ?? ""})`)} ${theme.fg("dim", elapsed)}`;
-	} else {
-		header = `${theme.fg("error", "✗")} ${theme.fg("toolTitle", theme.bold("vision"))} ${theme.fg("error", "failed")} ${theme.fg("dim", elapsed)}`;
-	}
-	const children: Component[] = [
-		new Text(header, 0, 0),
-		new Text(theme.fg("dim", `  ${names}`), 0, 0),
-	];
-	if (job.status === "running") {
-		children.push(new Text(theme.fg("muted", "  (starting worker...)"), 0, 0));
-	} else if (job.status === "error") {
-		children.push(
-			new Text(theme.fg("error", `  ${job.error || "unknown error"}`), 0, 0),
-		);
-	} else if (job.result?.text) {
-		const body = expanded ? job.result.text.trim() : preview(job.result.text);
-		children.push(new Text(theme.fg("toolOutput", `  ${body}`), 0, 0));
-		if (!expanded)
-			children.push(new Text(theme.fg("muted", "  (Ctrl+O to expand)"), 0, 0));
-	}
-	return new VStack(children);
+	return liveText((width) => {
+		const job = jobs.get(id);
+		if (!job) return [];
+		const elapsed = formatElapsed(job.startedAt, job.endedAt);
+		const names = job.files.map((f) => path.basename(f.filePath)).join(", ");
+		let header: string;
+		if (job.abort.signal.aborted) {
+			header = statusText(theme, "cancelled", "Vision cancelled");
+		} else if (job.status === "running") {
+			header = `${toolHeader(theme, "Vision")} ${statusText(theme, "running", `Describing · ${elapsed}`)}`;
+		} else if (job.status === "done") {
+			header = `${theme.fg("success", "✓")} ${theme.fg("toolTitle", theme.bold("vision"))}${theme.fg("muted", ` (${job.result?.model ?? ""})`)} ${theme.fg("dim", elapsed)}`;
+		} else {
+			header = `${theme.fg("error", "✗")} ${theme.fg("toolTitle", theme.bold("vision"))} ${theme.fg("error", "failed")} ${theme.fg("dim", elapsed)}`;
+		}
+		const children: Component[] = [
+			new Text(header, 0, 0),
+			new Text(theme.fg("dim", `  ${names}`), 0, 0),
+		];
+		if (job.status === "running") {
+			children.push(new Text(theme.fg("muted", "  Processing images"), 0, 0));
+		} else if (job.status === "error") {
+			children.push(
+				new Text(theme.fg("error", `  ${job.error || "unknown error"}`), 0, 0),
+			);
+		} else if (job.result?.text) {
+			const body = expanded ? job.result.text.trim() : preview(job.result.text);
+			children.push(new Text(theme.fg("toolOutput", `  ${body}`), 0, 0));
+			if (!expanded)
+				children.push(new Text(theme.fg("dim", `  ${keyHint("app.tools.expand", "expand")}`), 0, 0));
+		}
+		return new VStack(children).render(width);
+	});
 }
 
 function startJob(
@@ -386,6 +384,7 @@ function startJob(
 		abort.signal,
 	).then(
 		(result) => {
+			job.endedAt = Date.now();
 			if (job.status === "running") {
 				job.result = result;
 				job.status = result?.text ? "done" : "error";
@@ -394,6 +393,7 @@ function startJob(
 			return result;
 		},
 		(err) => {
+			job.endedAt = Date.now();
 			job.status = "error";
 			job.error = err instanceof Error ? err.message : String(err);
 			return null;
@@ -414,7 +414,7 @@ function startJob(
 }
 
 export default function (pi: ExtensionAPI) {
-	pruneOldPastes();
+	let unsubscribeSnapshot: (() => void) | undefined;
 
 	pi.registerEntryRenderer<VisionEntryData>(
 		ENTRY_TYPE,
@@ -437,7 +437,17 @@ export default function (pi: ExtensionAPI) {
 	});
 
 	const onSession = (_event: unknown, ctx: ExtensionContext) => {
-		if (ctx.hasUI) uiRef = ctx.ui;
+		pruneOldPastes();
+		if (!ctx.hasUI) return;
+		activitySink = (activity) => pi.events.emit(UI_ACTIVITY, activity);
+		// Remove the old duplicate surfaces once, including after /reload.
+		ctx.ui.setWidget("vision", undefined);
+		ctx.ui.setStatus("vision", undefined);
+		ctx.ui.setWorkingMessage();
+		unsubscribeSnapshot?.();
+		unsubscribeSnapshot = pi.events.on(UI_SNAPSHOT_REQUEST, () => {
+			paintChrome([...jobs.values()].find((job) => !job.consumed));
+		});
 	};
 
 	pi.on("session_start", onSession);
@@ -452,7 +462,9 @@ export default function (pi: ExtensionAPI) {
 		}
 		jobs.clear();
 		paintChrome(undefined);
-		uiRef = undefined;
+		activitySink = undefined;
+		unsubscribeSnapshot?.();
+		unsubscribeSnapshot = undefined;
 	});
 	pi.on("agent_settled", () => {
 		const pending = [...jobs.values()].find((j) => !j.consumed);
@@ -462,7 +474,6 @@ export default function (pi: ExtensionAPI) {
 	pi.on("input", async (event, ctx) => {
 		if (event.source === "extension") return { action: "continue" as const };
 		if (modelSupportsImages(ctx.model)) return { action: "continue" as const };
-		if (ctx.hasUI) uiRef = ctx.ui;
 
 		const userText = event.text ?? "";
 		// Chips/markers in THIS submit only. event.images can still carry the
@@ -484,7 +495,6 @@ export default function (pi: ExtensionAPI) {
 		const job = matchJob(text);
 		if (!job) return;
 
-		if (ctx.hasUI) uiRef = ctx.ui;
 		if (!job.entryAppended) {
 			job.entryAppended = true;
 			try {

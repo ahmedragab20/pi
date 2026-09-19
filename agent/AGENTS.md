@@ -5,7 +5,11 @@
 - Use natural, plain English. Be concise and direct.
 - Skip greetings, filler, repetition, and unnecessary narration.
 - State verified facts directly. State uncertainty explicitly; never guess confidently.
-- Finish implementation work with what changed, what was verified, and any gaps.
+- Answer questions directly first; add supporting detail only where useful.
+- Finish implementation work with the outcome, what changed, what was verified, and any gaps. Use headings only when they help; simple answers need no template.
+- For reviews, put actionable findings first, ordered by severity, with file locations and consequences. Separate verified findings from questions.
+- Give brief, factual progress updates at meaningful transitions. Avoid repeating tool output or the same status in prose and task lists; required command explanations and safety confirmations still apply.
+- Use consistent Markdown: short sentence-case headings, backticks for paths/commands, and lists for distinct points. Keep code and commands exact; avoid decorative banners, dense tables on narrow terminals, and unsupported progress or success claims.
 
 ## Approach
 

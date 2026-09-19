@@ -12,6 +12,7 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { plugin } from "bun";
+import * as realTui from "../npm/node_modules/@earendil-works/pi-tui/dist/index.js";
 import { parseFrontmatter } from "../npm/node_modules/@earendil-works/pi-coding-agent/dist/utils/frontmatter.js";
 import { SettingsManager } from "../npm/node_modules/@earendil-works/pi-coding-agent/dist/core/settings-manager.js";
 
@@ -40,24 +41,10 @@ const Type = {
 		schema("array", { items, options }),
 };
 
-class Text {
-	constructor(
-		public text: string,
-		public x = 0,
-		public y = 0,
-	) {}
-}
-
 function matchesKey(data: string, key: string): boolean {
 	if (key === "escape") return data === "\x1b" || data === "escape";
 	if (key === "ctrl+c") return data === "\x03" || data === "ctrl+c";
 	return data === key;
-}
-
-function truncateToWidth(text: string, width: number): string {
-	const plain = text.replace(/\x1b\[[0-9;]*m/g, "");
-	if (plain.length <= width) return text;
-	return `${plain.slice(0, Math.max(0, width - 1))}…`;
 }
 
 plugin({
@@ -83,7 +70,7 @@ plugin({
 			loader: "object",
 		}));
 		build.module("@earendil-works/pi-tui", () => ({
-			exports: { Text, matchesKey, truncateToWidth },
+			exports: { ...realTui, matchesKey },
 			loader: "object",
 		}));
 		build.module("typebox", () => ({

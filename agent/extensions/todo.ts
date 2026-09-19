@@ -9,10 +9,12 @@
 import type {
 	ExtensionAPI,
 	ExtensionContext,
-	Theme,
 } from "@earendil-works/pi-coding-agent";
-import { matchesKey, Text, truncateToWidth } from "@earendil-works/pi-tui";
+import { Text } from "@earendil-works/pi-tui";
 import { Type } from "typebox";
+import { PANEL_OVERLAY, ScrollPanel } from "./ui/panel.ts";
+import { liveText, singleLine, statusText, toolHeader } from "./ui/presentation.ts";
+import { UI_SNAPSHOT_REQUEST, UI_TASKS, type TaskProgress } from "./ui/events.ts";
 
 interface Todo {
 	id: number;
@@ -37,8 +39,6 @@ interface TodoSnapshot {
 const TODO_ENTRY = "todos";
 const TODO_WIDGET = "todos";
 const TODO_REMINDER = "todo-reminder";
-
-type AgentActivity = "queued" | "running";
 
 const TodoParams = Type.Object({
 	action: Type.Union([
@@ -72,89 +72,12 @@ function progressLine(list: Todo[]): string {
 	return `${done}/${list.length} completed`;
 }
 
-/**
- * UI component for the /todos command
- */
-class TodoListComponent {
-	private todos: Todo[];
-	private theme: Theme;
-	private onClose: () => void;
-	private cachedWidth?: number;
-	private cachedLines?: string[];
-
-	constructor(todos: Todo[], theme: Theme, onClose: () => void) {
-		this.todos = todos;
-		this.theme = theme;
-		this.onClose = onClose;
-	}
-
-	handleInput(data: string): void {
-		if (matchesKey(data, "escape") || matchesKey(data, "ctrl+c")) {
-			this.onClose();
-		}
-	}
-
-	render(width: number): string[] {
-		if (this.cachedLines && this.cachedWidth === width) {
-			return this.cachedLines;
-		}
-
-		const lines: string[] = [];
-		const th = this.theme;
-
-		lines.push("");
-		const title = th.fg("accent", " Todos ");
-		const headerLine =
-			th.fg("borderMuted", "─".repeat(3)) +
-			title +
-			th.fg("borderMuted", "─".repeat(Math.max(0, width - 10)));
-		lines.push(truncateToWidth(headerLine, width));
-		lines.push("");
-
-		if (this.todos.length === 0) {
-			lines.push(
-				truncateToWidth(
-					`  ${th.fg("dim", "No todos yet. Ask the agent to add some!")}`,
-					width,
-				),
-			);
-		} else {
-			lines.push(
-				truncateToWidth(`  ${th.fg("muted", progressLine(this.todos))}`, width),
-			);
-			lines.push("");
-
-			for (const todo of this.todos) {
-				const check = todo.done ? th.fg("success", "✓") : th.fg("dim", "○");
-				const id = th.fg("accent", `#${todo.id}`);
-				const text = todo.done ? th.fg("dim", todo.text) : th.fg("text", todo.text);
-				lines.push(truncateToWidth(`  ${check} ${id} ${text}`, width));
-			}
-		}
-
-		lines.push("");
-		lines.push(
-			truncateToWidth(`  ${th.fg("dim", "Press Escape to close")}`, width),
-		);
-		lines.push("");
-
-		this.cachedWidth = width;
-		this.cachedLines = lines;
-		return lines;
-	}
-
-	invalidate(): void {
-		this.cachedWidth = undefined;
-		this.cachedLines = undefined;
-	}
-}
-
 export default function (pi: ExtensionAPI) {
 	let todos: Todo[] = [];
 	let nextId = 1;
 	let currentCtx: ExtensionContext | undefined;
 	let lastReminder: string | undefined;
-	const activeAgents = new Map<string, AgentActivity>();
+	let unsubscribeSnapshot: (() => void) | undefined;
 
 	const snapshot = (): TodoSnapshot => ({ todos: cloneTodos(todos), nextId });
 
@@ -174,39 +97,12 @@ export default function (pi: ExtensionAPI) {
 	const refreshWidget = (ctx: ExtensionContext | undefined = currentCtx) => {
 		if (!ctx?.hasUI) return;
 		currentCtx = ctx;
-		if (todos.length === 0 && activeAgents.size === 0) {
-			ctx.ui.setWidget(TODO_WIDGET, undefined);
-			return;
-		}
-
-		const list = cloneTodos(todos);
-		const agents = [...activeAgents.values()];
-		ctx.ui.setWidget(TODO_WIDGET, (_tui, theme) => {
-			const parts: string[] = [];
-			if (agents.length > 0) {
-				const running = agents.filter((state) => state === "running").length;
-				const queued = agents.length - running;
-				if (running > 0) {
-					parts.push(
-						theme.fg("accent", `${running} agent${running === 1 ? "" : "s"} running`),
-					);
-				}
-				if (queued > 0) {
-					parts.push(
-						theme.fg("muted", `${queued} agent${queued === 1 ? "" : "s"} queued`),
-					);
-				}
-			}
-			if (list.length > 0) {
-				const done = list.filter((todo) => todo.done).length;
-				parts.push(theme.fg("muted", `tasks ${done}/${list.length}`));
-			}
-			const line = parts.join(theme.fg("dim", " · "));
-			return {
-				render: (width: number) => [truncateToWidth(line, width)],
-				invalidate: () => {},
-			};
-		});
+		const progress: TaskProgress = {
+			done: todos.filter((todo) => todo.done).length,
+			total: todos.length,
+			next: todos.find((todo) => !todo.done)?.text,
+		};
+		pi.events.emit(UI_TASKS, progress);
 	};
 
 	const reconstructState = (ctx: ExtensionContext) => {
@@ -253,9 +149,14 @@ export default function (pi: ExtensionAPI) {
 
 	const showTodos = async (ctx: ExtensionContext) => {
 		if (ctx.mode === "tui") {
-			await ctx.ui.custom<void>((_tui, theme, _kb, done) => {
-				return new TodoListComponent(cloneTodos(todos), theme, () => done());
-			});
+			const list = cloneTodos(todos);
+			await ctx.ui.custom<void>((tui, theme, keys, done) => new ScrollPanel({
+				title: "Tasks", tui, theme, keys, onClose: done,
+				body: (_width, th) => list.length === 0
+					? [th.fg("muted", "No tasks yet.")]
+					: [th.fg("muted", progressLine(list)), "", ...list.map((todo) =>
+						statusText(th, todo.done ? "success" : "queued", `#${todo.id} ${todo.text}`))],
+			}), PANEL_OVERLAY);
 			return;
 		}
 		if (ctx.hasUI) {
@@ -266,7 +167,9 @@ export default function (pi: ExtensionAPI) {
 	pi.on("session_start", async (_event, ctx) => {
 		currentCtx = ctx;
 		lastReminder = undefined;
-		activeAgents.clear();
+		unsubscribeSnapshot?.();
+		unsubscribeSnapshot = pi.events.on(UI_SNAPSHOT_REQUEST, () => refreshWidget());
+		ctx.ui.setWidget(TODO_WIDGET, undefined);
 		reconstructState(ctx);
 	});
 	pi.on("session_tree", async (_event, ctx) => {
@@ -280,36 +183,10 @@ export default function (pi: ExtensionAPI) {
 		refreshWidget(ctx);
 	});
 	pi.on("session_shutdown", async () => {
+		unsubscribeSnapshot?.();
+		unsubscribeSnapshot = undefined;
 		currentCtx = undefined;
-		activeAgents.clear();
 	});
-
-	const eventAgentId = (event: unknown): string | undefined => {
-		if (!event || typeof event !== "object" || !("id" in event)) return undefined;
-		const id = (event as { id?: unknown }).id;
-		return typeof id === "string" ? id : undefined;
-	};
-
-	pi.events.on("subagents:created", (event) => {
-		const id = eventAgentId(event);
-		if (!id) return;
-		if (!activeAgents.has(id)) activeAgents.set(id, "queued");
-		refreshWidget();
-	});
-	pi.events.on("subagents:started", (event) => {
-		const id = eventAgentId(event);
-		if (!id) return;
-		activeAgents.set(id, "running");
-		refreshWidget();
-	});
-	const settleAgent = (event: unknown) => {
-		const id = eventAgentId(event);
-		if (!id) return;
-		activeAgents.delete(id);
-		refreshWidget();
-	};
-	pi.events.on("subagents:completed", settleAgent);
-	pi.events.on("subagents:failed", settleAgent);
 
 	// A hidden history message, not a system-prompt edit: changing the system
 	// prompt invalidates the provider prompt cache for the whole conversation.
@@ -407,74 +284,71 @@ export default function (pi: ExtensionAPI) {
 		},
 
 		renderCall(args, theme, _context) {
-			let text =
-				theme.fg("toolTitle", theme.bold("todo ")) + theme.fg("muted", args.action);
-			if (args.text) text += ` ${theme.fg("dim", `"${args.text}"`)}`;
-			if (args.id !== undefined) text += ` ${theme.fg("accent", `#${args.id}`)}`;
-			return new Text(text, 0, 0);
+			return liveText(() => {
+				let text = toolHeader(theme, "Tasks", args.action);
+				if (args.id !== undefined) text += ` ${theme.fg("accent", `#${args.id}`)}`;
+				if (args.text) text += ` ${theme.fg("muted", singleLine(args.text))}`;
+				return [text];
+			});
 		},
 
-		renderResult(result, { expanded }, theme, _context) {
-			const details = result.details as TodoDetails | undefined;
-			if (!details) {
-				const text = result.content[0];
-				return new Text(text?.type === "text" ? text.text : "", 0, 0);
-			}
-
-			if (details.error) {
-				return new Text(theme.fg("error", `Error: ${details.error}`), 0, 0);
-			}
-
-			const todoList = details.todos;
-			const renderItems = (limit?: number) => {
-				if (todoList.length === 0) {
-					return theme.fg("dim", "No todos");
+		renderResult(result, { expanded, isPartial }, theme, context) {
+			const render = () => {
+				if (context.isError) {
+					const text = result.content.flatMap((part) => part.type === "text" ? [part.text] : []).join("\n");
+					return new Text(statusText(theme, "error", "Task operation failed") + "\n" + text, 0, 0);
 				}
-				const display = limit && !expanded ? todoList.slice(0, limit) : todoList;
-				let listText = theme.fg("muted", `${progressLine(todoList)}:`);
-				for (const t of display) {
-					const check = t.done ? theme.fg("success", "✓") : theme.fg("dim", "○");
-					const itemText = t.done
-						? theme.fg("dim", t.text)
-						: theme.fg("muted", t.text);
-					listText += `\n${check} ${theme.fg("accent", `#${t.id}`)} ${itemText}`;
-				}
-				if (limit && !expanded && todoList.length > limit) {
-					listText += `\n${theme.fg("dim", `... ${todoList.length - limit} more`)}`;
-				}
-				return listText;
-			};
-
-			switch (details.action) {
-				case "list":
-					return new Text(renderItems(5), 0, 0);
-
-				case "add": {
-					const added = todoList[todoList.length - 1];
-					return new Text(
-						theme.fg("success", "✓ Added ") +
-							theme.fg("accent", `#${added.id}`) +
-							" " +
-							theme.fg("muted", added.text),
-						0,
-						0,
-					);
-				}
-
-				case "toggle":
-				case "update": {
+				if (isPartial) return new Text(statusText(theme, "running", "Updating tasks"), 0, 0);
+				const details = result.details as TodoDetails | undefined;
+				if (!details) {
 					const text = result.content[0];
-					const msg = text?.type === "text" ? text.text.split("\n")[0] : "";
-					return new Text(theme.fg("success", "✓ ") + theme.fg("muted", msg), 0, 0);
+					return new Text(text?.type === "text" ? text.text : "", 0, 0);
 				}
 
-				case "clear":
-					return new Text(
-						theme.fg("success", "✓ ") + theme.fg("muted", "Cleared all todos"),
-						0,
-						0,
-					);
-			}
+				if (details.error) {
+					return new Text(statusText(theme, "error", details.error), 0, 0);
+				}
+
+				const todoList = details.todos;
+				const renderItems = (limit?: number) => {
+					if (todoList.length === 0) return theme.fg("dim", "No todos");
+					const display = limit && !expanded ? todoList.slice(0, limit) : todoList;
+					let listText = theme.fg("muted", `${progressLine(todoList)}:`);
+					for (const t of display) {
+						const check = t.done ? theme.fg("success", "✓") : theme.fg("dim", "○");
+						const itemText = theme.fg(t.done ? "dim" : "muted", t.text);
+						listText += `\n${check} ${theme.fg("accent", `#${t.id}`)} ${itemText}`;
+					}
+					if (limit && !expanded && todoList.length > limit) {
+						listText += `\n${theme.fg("dim", `... ${todoList.length - limit} more`)}`;
+					}
+					return listText;
+				};
+
+				switch (details.action) {
+					case "list":
+						return new Text(renderItems(5), 0, 0);
+					case "add": {
+						const added = todoList.at(-1);
+						if (!added || expanded) return new Text(renderItems(), 0, 0);
+						return new Text(
+							theme.fg("success", "✓ Added ") + theme.fg("accent", `#${added.id}`) +
+								" " + theme.fg("muted", added.text), 0, 0,
+						);
+					}
+					case "toggle":
+					case "update": {
+						const text = result.content[0];
+						const msg = text?.type === "text" ? text.text.split("\n")[0] : "";
+						return new Text(expanded ? renderItems() : statusText(theme, "success", msg), 0, 0);
+					}
+					case "clear":
+						return new Text(statusText(theme, "success", "Cleared all todos"), 0, 0);
+					default:
+						return new Text(renderItems(), 0, 0);
+				}
+			};
+			return liveText((width) => render().render(width));
 		},
 	});
 

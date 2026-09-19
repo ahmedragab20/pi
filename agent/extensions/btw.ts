@@ -15,10 +15,12 @@ import {
 	Markdown,
 	matchesKey,
 	truncateToWidth,
-	visibleWidth,
+	wrapTextWithAnsi,
 	type MarkdownTheme,
 	type TUI,
 } from "@earendil-works/pi-tui";
+
+import { framePanel, keyLabel, keyMatches, panelBodyHeight, type PanelKeys } from "./ui/panel.ts";
 
 export const MAX_CONVERSATION_CHARS = 80_000;
 export const MAX_BLOCK_CHARS = 2_000;
@@ -407,6 +409,9 @@ class BtwPanel {
 	private bodyLines: string[] = [];
 	private cachedWidth?: number;
 	private visibleBody = 12;
+	private readonly keys: PanelKeys;
+	private copyTimer: ReturnType<typeof setTimeout> | undefined;
+	private disposed = false;
 
 	constructor(opts: {
 		tui: TUI;
@@ -417,6 +422,7 @@ class BtwPanel {
 		answering: boolean;
 		onClose: () => void;
 		copy: (text: string) => Promise<boolean>;
+		keys?: PanelKeys;
 	}) {
 		this.tui = opts.tui;
 		this.theme = opts.theme;
@@ -426,6 +432,7 @@ class BtwPanel {
 		this.answering = opts.answering;
 		this.onClose = opts.onClose;
 		this.copy = opts.copy;
+		this.keys = opts.keys ?? {};
 	}
 
 	setAnswer(answer: string): void {
@@ -456,7 +463,19 @@ class BtwPanel {
 	}
 
 	handleInput(data: string): void {
-		const action = btwKeyAction(data, this.answering);
+		if (keyMatches(this.keys, data, "tui.select.cancel", "ctrl+c")) {
+			this.onClose();
+			return;
+		}
+		const action = keyMatches(this.keys, data, "tui.select.up", "up")
+			? { type: "scroll" as const, delta: -1 }
+			: keyMatches(this.keys, data, "tui.select.down", "down")
+				? { type: "scroll" as const, delta: 1 }
+				: keyMatches(this.keys, data, "tui.select.pageUp", "pageUp")
+					? { type: "scroll" as const, delta: -this.visibleBody }
+					: keyMatches(this.keys, data, "tui.select.pageDown", "pageDown")
+						? { type: "scroll" as const, delta: this.visibleBody }
+						: btwKeyAction(data, this.answering);
 		switch (action.type) {
 			case "dismiss":
 				this.onClose();
@@ -488,11 +507,13 @@ class BtwPanel {
 	private async copyCurrent(): Promise<void> {
 		if (!this.answer) return;
 		const ok = await this.copy(this.answer);
+		if (this.disposed) return;
 		this.copied = ok;
 		this.cachedWidth = undefined;
 		this.tui.requestRender();
 		if (ok) {
-			setTimeout(() => {
+			if (this.copyTimer) clearTimeout(this.copyTimer);
+			this.copyTimer = setTimeout(() => {
 				this.copied = false;
 				this.cachedWidth = undefined;
 				this.tui.requestRender();
@@ -500,12 +521,17 @@ class BtwPanel {
 		}
 	}
 
+	dispose(): void {
+		this.disposed = true;
+		if (this.copyTimer) clearTimeout(this.copyTimer);
+	}
+
 	invalidate(): void {
 		this.cachedWidth = undefined;
 	}
 
 	render(width: number): string[] {
-		const w = Math.max(24, width);
+		const w = Math.max(0, width);
 		if (this.cachedWidth === w && this.bodyLines.length > 0) {
 			return this.compose(w);
 		}
@@ -516,7 +542,7 @@ class BtwPanel {
 
 	private buildBody(width: number): string[] {
 		const th = this.theme;
-		const inner = Math.max(8, width - 4);
+		const inner = Math.max(1, width - 3);
 		const lines: string[] = [];
 		const cut = this.answering ? this.history.length : this.history.viewIndex;
 		const prev = this.history.previousVisible(cut);
@@ -552,78 +578,23 @@ class BtwPanel {
 	}
 
 	private compose(width: number): string[] {
-		const th = this.theme;
-		const inner = Math.max(1, width - 2);
-		const termRows = this.tui.terminal?.rows ?? 24;
-		const maxHeight = Math.max(10, Math.min(termRows - 2, Math.floor(termRows * 0.8)));
-		const chrome = 4; // title + footer + two borders
-		this.visibleBody = Math.max(4, maxHeight - chrome);
-
+		const rows = this.tui.terminal?.rows ?? 24;
+		this.visibleBody = panelBodyHeight(rows);
 		const maxScroll = Math.max(0, this.bodyLines.length - this.visibleBody);
-		if (this.scroll > maxScroll) this.scroll = maxScroll;
-		const slice = this.bodyLines.slice(
-			this.scroll,
-			this.scroll + this.visibleBody,
-		);
-		while (slice.length < this.visibleBody) slice.push("");
-
-		const title = ` btw `;
-		const titlePad = Math.max(0, inner - visibleWidth(title));
-		const out: string[] = [];
-		out.push(
-			th.fg("border", "╭") +
-				th.fg("accent", th.bold(title)) +
-				th.fg("border", `${"─".repeat(titlePad)}╮`),
-		);
-
-		const canUp = this.scroll > 0;
-		const canDown = this.scroll < maxScroll;
-		for (let i = 0; i < slice.length; i++) {
-			let prefix = " ";
-			if (i === 0 && canUp) prefix = "↑";
-			else if (i === slice.length - 1 && canDown) prefix = "↓";
-			out.push(this.row(`${prefix}${slice[i] ?? ""}`, width));
-		}
-
+		this.scroll = Math.max(0, Math.min(this.scroll, maxScroll));
+		const slice = this.bodyLines.slice(this.scroll, this.scroll + this.visibleBody);
+		const range = maxScroll > 0 ? `${this.scroll + 1}–${Math.min(this.bodyLines.length, this.scroll + this.visibleBody)}/${this.bodyLines.length} · ` : "";
+		const close = keyLabel(this.keys, "tui.select.cancel", "esc");
 		const hint = this.answering
-			? "esc cancel"
-			: this.copied
-				? "copied"
-				: "esc close · ↑↓ scroll · ←→ history · c copy · x clear";
-		out.push(this.row(` ${th.fg("dim", hint)}`, width));
-		out.push(th.fg("border", `╰${"─".repeat(inner)}╯`));
-		return out;
-	}
-
-	private row(content: string, width: number): string {
-		const th = this.theme;
-		const inner = Math.max(1, width - 2);
-		const padded = truncateToWidth(content, inner, "…", true);
-		return th.fg("border", "│") + padded + th.fg("border", "│");
+			? `esc/${close} cancel`
+			: this.copied ? "copied"
+				: `esc/${close} close · ${keyLabel(this.keys, "tui.select.up", "↑")}/${keyLabel(this.keys, "tui.select.down", "↓")} scroll · ←→ history · c copy · x clear`;
+		return framePanel(width, rows, this.theme, "Side question", slice, range + hint);
 	}
 }
 
 function wrapPlain(text: string, width: number): string[] {
-	const words = text.split(/\s+/).filter(Boolean);
-	if (words.length === 0) return [""];
-	const lines: string[] = [];
-	let current = "";
-	for (const word of words) {
-		const next = current ? `${current} ${word}` : word;
-		if (visibleWidth(next) <= width) {
-			current = next;
-			continue;
-		}
-		if (current) lines.push(current);
-		if (visibleWidth(word) <= width) {
-			current = word;
-		} else {
-			lines.push(truncateToWidth(word, width, "…"));
-			current = "";
-		}
-	}
-	if (current) lines.push(current);
-	return lines.length > 0 ? lines : [""];
+	return wrapTextWithAnsi(text.replace(/\s+/g, " ").trim(), Math.max(1, width));
 }
 
 function usage(): string {
@@ -721,10 +692,11 @@ export default function btwExtension(pi: ExtensionAPI): void {
 		if (ctx.hasUI) ctx.ui.setStatus("btw", ctx.ui.theme.fg("accent", "btw"));
 		try {
 			await ctx.ui.custom(
-				(tui, theme, _kb, done) =>
+				(tui, theme, keys, done) =>
 					new BtwPanel({
 						tui,
 						theme,
+						keys,
 						history,
 						question: state.question,
 						answer: state.answer,
@@ -744,7 +716,7 @@ export default function btwExtension(pi: ExtensionAPI): void {
 		ctx: ExtensionCommandContext,
 		opts: { question: string; prompt: string; signal: AbortSignal },
 	): Promise<void> {
-		await ctx.ui.custom((tui, theme, _kb, done) => {
+		await ctx.ui.custom((tui, theme, keys, done) => {
 			let closed = false;
 			const close = () => {
 				if (closed) return;
@@ -755,6 +727,7 @@ export default function btwExtension(pi: ExtensionAPI): void {
 			const panel = new BtwPanel({
 				tui,
 				theme,
+				keys,
 				history,
 				question: opts.question,
 				answer: "",
@@ -806,7 +779,6 @@ function overlayOptions() {
 		overlayOptions: {
 			anchor: "right-center" as const,
 			width: "56%" as const,
-			minWidth: 48,
 			maxHeight: "80%" as const,
 			margin: 1,
 		},

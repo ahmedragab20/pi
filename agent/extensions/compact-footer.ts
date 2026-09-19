@@ -6,11 +6,13 @@ import type {
 	ReadonlyFooterDataProvider,
 	Theme,
 } from "@earendil-works/pi-coding-agent";
-import { truncateToWidth, type TUI } from "@earendil-works/pi-tui";
+import type { TUI } from "@earendil-works/pi-tui";
+import { fitSegments, singleLine, type Segment } from "./ui/presentation.ts";
+import { UI_FOOTER, UI_SNAPSHOT_REQUEST, type FooterSnapshot } from "./ui/events.ts";
 
 function formatContext(ctx: ExtensionContext, theme: Theme): string {
 	const percent = ctx.getContextUsage()?.percent;
-	if (percent === null || percent === undefined) return theme.fg("dim", "ctx —");
+	if (percent === null || percent === undefined || !Number.isFinite(percent)) return theme.fg("dim", "ctx —");
 	const value =
 		percent < 10 ? percent.toFixed(1) : Math.round(percent).toString();
 	let color: "error" | "warning" | "muted" = "muted";
@@ -53,14 +55,6 @@ export function latestCacheHitPercent(
 	return undefined;
 }
 
-function formatCache(ctx: ExtensionContext, theme: Theme): string {
-	const percent = latestCacheHitPercent(ctx.sessionManager.getEntries());
-	return theme.fg(
-		percent === undefined ? "dim" : "muted",
-		percent === undefined ? "cache —" : `cache ${percent.toFixed(1)}%`,
-	);
-}
-
 function formatGitState(
 	gitStatus: string | undefined,
 	theme: Theme,
@@ -78,6 +72,7 @@ const INFORMATIONAL_STATUS_KEYS = new Set([
 	"pi-lens-lsp",
 	"subagents",
 	"working-timer",
+	"vision",
 ]);
 
 function actionableStatuses(statuses: ReadonlyMap<string, string>): string[] {
@@ -125,11 +120,21 @@ export function formatGitStatus(output: string): string {
 }
 
 function installFooter(pi: ExtensionAPI, ctx: ExtensionContext): void {
-	if (!ctx.hasUI) return;
+	if (ctx.mode !== "tui") return;
 	ctx.ui.setFooter((tui, theme, footerData) => {
 		const gitStatus = createGitStatusMonitor(pi, ctx, tui, footerData);
+		const publish = () => {
+			const snapshot: FooterSnapshot = {
+				location: ctx.cwd,
+				branch: footerData.getGitBranch() ?? undefined,
+				git: gitStatus.current(),
+				statuses: [...footerData.getExtensionStatuses()].map(([key, text]) => [singleLine(key), singleLine(text)]),
+			};
+			pi.events.emit(UI_FOOTER, snapshot);
+		};
+		const unsubscribe = pi.events.on(UI_SNAPSHOT_REQUEST, publish);
 		return {
-			dispose: () => gitStatus.dispose(),
+			dispose: () => { gitStatus.dispose(); unsubscribe(); },
 			invalidate() {},
 			render: (width: number) =>
 				renderFooter({
@@ -222,23 +227,31 @@ function renderFooter({
 		: basename(ctx.cwd);
 	const statuses = footerData.getExtensionStatuses();
 	const pr = statuses.get("github-pr");
-	const parts = [
-		theme.fg("muted", location),
-		pr ? theme.fg("accent", pr) : undefined,
-		formatGitState(gitStatus, theme),
-		formatContext(ctx, theme),
-		formatCache(ctx, theme),
-		ctx.model?.id ? theme.fg("muted", ctx.model.id) : undefined,
-		statuses.get("fast-mode"),
-		...actionableStatuses(statuses),
-	].filter((part): part is string => part !== undefined);
+	const attention = actionableStatuses(statuses);
+	const percent = ctx.getContextUsage()?.percent;
 	const separator = theme.fg("dim", " · ");
-	return [truncateToWidth(parts.join(separator), width)];
+	const cache = latestCacheHitPercent(ctx.sessionManager.getEntries());
+	const usage = formatContext(ctx, theme) + separator + theme.fg(
+		cache === undefined ? "dim" : "muted",
+		cache === undefined ? "cache —" : `cache ${cache.toFixed(1)}%`,
+	);
+	const parts: Segment[] = [
+		{ text: attention[0] ? theme.fg("text", singleLine(attention[0])) : "", priority: 100 },
+		{ text: attention.length > 1 ? theme.fg("warning", `+${attention.length - 1} /ui`) : "", priority: 99 },
+		{ text: theme.fg("muted", singleLine(location)), priority: 70 },
+		{ text: pr ? theme.fg("accent", singleLine(pr)) : "", priority: 30 },
+		{ text: formatGitState(gitStatus, theme) ?? "", priority: 65 },
+		{ text: ctx.model?.id ? theme.fg("muted", singleLine(ctx.model.id)) : "", priority: 80 },
+		{ text: usage, priority: percent != null && percent >= 70 ? 95 : 75 },
+		{ text: statuses.get("fast-mode") ?? "", priority: 90 },
+		{ text: attention.length > 1 ? "" : theme.fg("dim", "/ui"), priority: 10 },
+	];
+	return [fitSegments(parts, width, separator)];
 }
 
 export default function compactFooter(pi: ExtensionAPI): void {
 	pi.on("session_start", (_event, ctx) => installFooter(pi, ctx));
 	pi.on("session_shutdown", (_event, ctx) => {
-		if (ctx.hasUI) ctx.ui.setFooter(undefined);
+		if (ctx.mode === "tui") ctx.ui.setFooter(undefined);
 	});
 }
