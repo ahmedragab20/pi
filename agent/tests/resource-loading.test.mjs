@@ -8,6 +8,7 @@ import { parseFrontmatter } from "../npm/node_modules/@earendil-works/pi-coding-
 import { SettingsManager } from "../npm/node_modules/@earendil-works/pi-coding-agent/dist/core/settings-manager.js";
 import { DefaultPackageManager } from "../npm/node_modules/@earendil-works/pi-coding-agent/dist/core/package-manager.js";
 import { DefaultResourceLoader } from "../npm/node_modules/@earendil-works/pi-coding-agent/dist/core/resource-loader.js";
+import { createEventBus } from "../npm/node_modules/@earendil-works/pi-coding-agent/dist/core/event-bus.js";
 
 // Real installed resources, but never install packages or contact providers.
 assert.equal(process.env.PI_OFFLINE, "1", "Run with PI_OFFLINE=1");
@@ -105,6 +106,9 @@ test("real extension loading retains browser, review, and deferred tools", {
 	await loader.reload();
 	const { extensions, errors } = loader.getExtensions();
 	assert.deepEqual(errors, []);
+	const attention = extensions.find((extension) => isExtension(extension.path, "question-attention.ts"));
+	assert.ok(attention, "question attention loads through normal discovery");
+	assert.equal(attention.tools.size, 0, "attention must not replace the question tool");
 	const names = new Set(
 		extensions.flatMap((extension) => [...extension.tools.keys()]),
 	);
@@ -122,6 +126,51 @@ test("real extension loading retains browser, review, and deferred tools", {
 			false,
 			name,
 		);
+	}
+});
+
+test("real question tool brackets herdr attention for answer, cancellation, and UI errors", { timeout: 15000 }, async () => {
+	const { default: questionAttention } = await jiti.import(new URL("../extensions/question-attention.ts", import.meta.url).href);
+	const { registerAskUserQuestionTool } = await jiti.import(new URL("../npm/node_modules/@juicesharp/rpiv-ask-user-question/ask-user-question.ts", import.meta.url).href);
+	const params = { questions: [{
+		question: "Which synthetic option?", header: "Fixture",
+		options: [{ label: "A", description: "First" }, { label: "B", description: "Second" }],
+	}] };
+	for (const outcome of ["answer", "cancel", "error"]) {
+		const events = createEventBus();
+		const handlers = new Map();
+		const reports = [];
+		const shown = Promise.withResolvers();
+		const answer = Promise.withResolvers();
+		let tool;
+		const pi = {
+			events,
+			on: (name, handler) => handlers.set(name, handler),
+			registerTool: (definition) => { tool = definition; },
+		};
+		events.on("herdr:blocked", (data) => reports.push(data));
+		questionAttention(pi);
+		registerAskUserQuestionTool(pi);
+		const ctx = { mode: "tui", hasUI: true, ui: {
+			custom: () => { shown.resolve(); return answer.promise; },
+		} };
+		await handlers.get("session_start")({}, ctx);
+		const execution = tool.execute("synthetic-question", params, undefined, undefined, ctx)
+			.then((value) => ({ value }), (error) => ({ error }));
+		await shown.promise; // Explicit condition: the real tool is waiting for its dialog.
+		assert.deepEqual(reports, [{ active: true, label: "Question awaiting answer" }]);
+		const result = outcome === "answer"
+			? { cancelled: false, answers: [{ questionIndex: 0, question: params.questions[0].question, kind: "option", answer: "A" }] }
+			: { cancelled: true, answers: [] };
+		if (outcome === "error") answer.reject(new Error("synthetic dialog failure"));
+		else answer.resolve(result);
+		const settled = await execution;
+		if (outcome === "error") assert.equal(settled.error?.message, "synthetic dialog failure");
+		else assert.deepEqual(settled.value.details, result);
+		assert.deepEqual(reports, [{ active: true, label: "Question awaiting answer" }, { active: false }]);
+		await handlers.get("session_shutdown")({}, ctx);
+		assert.equal(reports.length, 2);
+		events.clear();
 	}
 });
 

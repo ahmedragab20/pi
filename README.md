@@ -53,6 +53,11 @@ While a risky-command dialog is open, Pi reports “Risky command approval” to
 herdr's attention state, clearing it when the dialog closes. Background alerts
 follow your existing herdr notification/sound settings; command text is not sent.
 
+`ask_user_question` also reports “Question awaiting answer” while waiting for you.
+`question-attention.ts` bridges the question tool's public wait event to the same
+herdr attention signal, clearing it after an answer, cancellation, or error.
+Question and answer text are never included; RPC/print runs do not alert a local pane.
+
 Native compaction remains enabled and deferred tools remain available. Optional
 worker-model and context-efficiency features are disabled by default; custom
 compress/fold/memory code is dormant. `pi-intercom` and `pi-tool-repair` resources
