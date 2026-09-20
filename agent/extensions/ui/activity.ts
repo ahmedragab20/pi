@@ -59,7 +59,6 @@ export class ActivityState {
 			const label = firstTool ? TOOL_LABELS[firstTool] ?? `Running ${singleLine(firstTool)}` : "Working";
 			add(statusText(theme, "running", label + (this.tools.size > 1 ? ` +${this.tools.size - 1}` : ""), now), 80);
 		} else if (this.outcome) add(statusText(theme, this.outcome, this.outcome === "error" ? "Run failed · /ui" : "Cancelled"), 100);
-		else if (this.toolErrors) add(statusText(theme, "error", `Run had ${this.toolErrors} tool error${this.toolErrors === 1 ? "" : "s"}`), 100);
 
 		if (this.active && this.timing.startedAt !== undefined) add(theme.fg("dim", elapsedText(now - this.timing.startedAt)), 15);
 		for (const item of this.external.values()) {

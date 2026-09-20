@@ -1,5 +1,5 @@
 {
-  "lastChangelogVersion": "0.85.1",
+  "lastChangelogVersion": "0.86.0",
   "theme": "rose-pine",
   "defaultProvider": "openai-codex",
   "defaultModel": "gpt-6-astra",
@@ -7,7 +7,7 @@
   "modelThinkingLevels": {
     "openai-codex/gpt-6-astra": "low"
   },
-  "hideThinkingBlock": false,
+  "hideThinkingBlock": true,
   "externalEditor": "nvim",
   "quietStartup": true,
   "defaultProjectTrust": "ask",

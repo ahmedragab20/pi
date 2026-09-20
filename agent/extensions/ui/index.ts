@@ -162,11 +162,11 @@ export default function unifiedUi(pi: ExtensionAPI): void {
 	pi.on("ui_prompt_end", () => { if (ctx) { state.prompts.pop(); refresh(); } });
 
 	pi.registerCommand("ui", {
-		description: "UI details and controls; /ui preview shows synthetic component examples",
+		description: "Run diagnostics and controls (/ui debug); /ui preview shows synthetic examples",
 		handler: async (args, current) => {
 			const preview = args.trim() === "preview";
-			if (args.trim() && !preview) {
-				if (current.hasUI) current.ui.notify("Usage: /ui [preview]", "info");
+			if (args.trim() && args.trim() !== "debug" && !preview) {
+				if (current.hasUI) current.ui.notify("Usage: /ui [debug|preview]", "info");
 				return;
 			}
 			if (current.mode !== "tui") {
@@ -177,7 +177,7 @@ export default function unifiedUi(pi: ExtensionAPI): void {
 			const usage = current.getContextUsage();
 			const cache = latestCacheHitPercent(current.sessionManager.getEntries());
 			await current.ui.custom<void>((tui, theme, keys, done) => new ScrollPanel({
-				title: preview ? "UI preview — synthetic data" : "UI details", tui, theme, keys, onClose: done, animate: preview,
+				title: preview ? "UI preview — synthetic data" : "UI debug details", tui, theme, keys, onClose: done, animate: preview,
 				body: (_width, th) => preview ? [
 					th.fg("muted", "Synthetic examples only. No tools or model calls run."), "",
 					toolHeader(th, "Read", "sample/long-directory/example.ts"),

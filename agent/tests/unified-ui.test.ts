@@ -147,6 +147,22 @@ describe("unified activity", () => {
 		} finally { await h.stop(); }
 	});
 
+	test("tool errors stay in on-demand diagnostics, not the activity widget", async () => {
+		const h = harness(); await h.start();
+		try {
+			await h.fire("agent_start");
+			await h.fire("tool_execution_end", { toolCallId: "1", isError: true });
+			await h.fire("agent_settled");
+			expect(h.line()).toBe("");
+			await h.commands.get("ui")!.handler("debug", h.ctx);
+			expect(plain(h.panel().render(120))).toContain("Run tool errors: 1 · worker failures: 0");
+			await h.fire("agent_start");
+			await h.fire("agent_settled");
+			await h.commands.get("ui")!.handler("debug", h.ctx);
+			expect(plain(h.panel().render(120))).toContain("Run tool errors: 0 · worker failures: 0");
+		} finally { await h.stop(); }
+	});
+
 	test("reload cleans listeners, reconstructs tasks and preserves expansion choice", async () => {
 		const h = harness(); await h.start();
 		await h.tools.get("todo")!.execute("1", { action: "add", text: "Keep task" }, undefined, undefined, h.ctx);
