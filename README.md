@@ -4,6 +4,9 @@ This repository is the source of truth for pi’s global configuration under `ag
 The default lead remains `openai-codex/gpt-6-astra` at low thinking. Normal work is
 lead-owned and direct; delegate only substantial, independent, bounded chores.
 
+<img width="1670" height="1095" alt="image" src="https://github.com/user-attachments/assets/37b3a2f5-9fab-4708-8beb-b6c5c077e76f" />
+
+
 ## Optional worker
 
 `agent/agents/worker.md` pins `openai-codex/gpt-5.6-luna` at medium thinking,
