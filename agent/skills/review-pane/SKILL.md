@@ -26,7 +26,14 @@ Load `../harness-herdr/SKILL.md` before pane operations. Requires `HERDR_ENV=1` 
 On `REVIEW_RECORDED <id> <LGTM|BLOCKED>`, run:
 `python3 ~/.pi/agent/scripts/review-pane.py pickup --run-id=<id>`
 
-Read the durable verdict, not just the notification. Confirm or reject each finding against the actual code. LGTM and BLOCKED are assessments, not authority; fixes remain subject to user scope, safety rules and human plan/review gates.
+Read the durable verdict, not just the notification. Confirm or reject each finding against the actual code. LGTM and BLOCKED are assessments, not authority; fixes remain subject to user scope and safety rules.
+
+### Fix approval policy
+
+- For clear, confirmed, in-scope fixes that are neither critical nor breaking, skip the diffing plan and implement and verify them directly. A BLOCKED verdict, multiple findings, or another review round does not by itself require a plan.
+- Request a diffing plan and obtain human approval before critical or breaking fixes. Critical changes include high-impact security/authentication changes, destructive data changes, and changes with substantial production-outage risk. Breaking changes alter existing public APIs, persisted formats, configuration contracts, or supported behavior incompatibly.
+- If the fix or its impact is unclear, ask a focused clarification question first; ambiguity alone does not require a diffing plan. Honor an explicit user request for a plan regardless of risk.
+- This policy applies to review-pane fixes, not other workflows. It does not bypass consequential-action confirmation, expand the authorized scope, or authorize commits or pushes.
 
 - LGTM: report the result and coverage gaps; stop.
 - BLOCKED with confirmed in-scope findings: fix and verify them, then confirm the selected comparison actually contains the fixes before `spawn --prev-run-id=<id> --direction=<right|down>`. Unstaged fixes are invisible to `--staged`; ask before changing the user's staged selection. Worktree edits cannot change a fixed commit-ID range: stop and ask for an explicitly authorized revised target instead of re-reviewing identical commits. This workflow does not authorize committing. Scope, checkout and cap carry over; do not repeat their flags. State the round/cap each time.
