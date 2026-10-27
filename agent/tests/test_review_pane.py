@@ -313,6 +313,10 @@ class ReviewPaneTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "BLOCKED"):
                 review.spawn(args)
         review.save(rd / "verdict.json", {"verdict": "BLOCKED"})
+        with self.assertRaisesRegex(ValueError, "acknowledge"):
+            review.spawn(args)
+        meta.update(acknowledged=True, pane_closed=True)
+        review.save(rd / "meta.json", meta)
         result = review.spawn(args)
         self.assertEqual((result["round"], result["scope"], result["max_rounds"]), (2, "--staged", 2))
         review.save(review.run_dir(result["run_id"]) / "verdict.json", {"verdict": "BLOCKED"})
@@ -339,6 +343,73 @@ class ReviewPaneTests(unittest.TestCase):
         self.assertEqual(result["disposition"], "done")
         self.assertEqual(result["findings"], "Evidence")
         self.assertTrue((review.run_dir(meta["run_id"]) / "verdict.json").exists())
+
+    def test_acknowledge_requires_verdict_owner_and_matching_idle_reviewer(self):
+        meta = self.meta(reviewer_name="review-test")
+        args = self.args("acknowledge", "--run-id", meta["run_id"])
+        calls = []
+        agent = {"pane_id": "w1:p2", "agent": "pi", "agent_status": "done"}
+        def herdr(*args):
+            calls.append(args)
+            return {"agent": dict(agent)}
+        self.patch(review, "herdr", herdr)
+        with self.assertRaisesRegex(ValueError, "verdict"):
+            review.acknowledge(args)
+        self.assertEqual(calls, [])
+        review.save(review.run_dir(meta["run_id"]) / "verdict.json", {"verdict": "LGTM"})
+        with patch.dict(os.environ, {"HERDR_PANE_ID": "w1:p3"}), self.assertRaises(RuntimeError):
+            review.acknowledge(args)
+        self.assertEqual(calls, [])
+        for changes in [{"pane_id": "w1:p3"}, {"agent": "claude"}, {"agent_status": "blocked"}]:
+            original = dict(agent)
+            agent.update(changes)
+            with self.assertRaises(RuntimeError):
+                review.acknowledge(args)
+            self.assertNotIn(("pane", "close", "w1:p2"), calls)
+            agent.clear()
+            agent.update(original)
+        calls.clear()
+        result = review.acknowledge(args)
+        self.assertTrue(result["acknowledged"])
+        self.assertTrue(result["pane_closed"])
+        self.assertEqual(calls[-1], ("pane", "close", "w1:p2"))
+        calls.clear()
+        review.acknowledge(args)
+        self.assertEqual(calls, [])
+
+    def test_acknowledge_waits_for_final_turn_and_rechecks_identity(self):
+        meta = self.meta(reviewer_name="review-test")
+        review.save(review.run_dir(meta["run_id"]) / "verdict.json", {"verdict": "LGTM"})
+        for final_pane in ["w1:p3", "w1:p2"]:
+            calls = []
+            def herdr(*args):
+                calls.append(args)
+                waited = any(call[:2] == ("agent", "wait") for call in calls)
+                return {"agent": {"pane_id": final_pane if waited else "w1:p2",
+                                  "agent": "pi", "agent_status": "done" if waited else "working"}}
+            with patch.object(review, "herdr", herdr):
+                args = self.args("acknowledge", "--run-id", meta["run_id"])
+                if final_pane == "w1:p3":
+                    with self.assertRaisesRegex(RuntimeError, "identity changed"):
+                        review.acknowledge(args)
+                    self.assertFalse(any(call[:2] == ("pane", "close") for call in calls))
+                else:
+                    self.assertTrue(review.acknowledge(args)["pane_closed"])
+                self.assertIn(("agent", "wait", "review-test", "--until", "idle", "--until", "done", "--timeout", "10000"), calls)
+
+    def test_acknowledge_close_failure_preserves_run_for_recovery(self):
+        meta = self.meta(reviewer_name="review-test")
+        review.save(review.run_dir(meta["run_id"]) / "verdict.json", {"verdict": "BLOCKED"})
+        def herdr(*args):
+            if args[:2] == ("pane", "close"):
+                raise RuntimeError("close failed")
+            return {"agent": {"pane_id": "w1:p2", "agent": "pi", "agent_status": "idle"}}
+        self.patch(review, "herdr", herdr)
+        with self.assertRaisesRegex(RuntimeError, "close failed"):
+            review.acknowledge(self.args("acknowledge", "--run-id", meta["run_id"]))
+        saved = review.load(meta["run_id"])
+        self.assertTrue(saved["acknowledged"])
+        self.assertFalse(saved.get("pane_closed", False))
 
     def test_pickup_pending_and_wrong_coordinator_never_control_panes(self):
         meta = self.meta()

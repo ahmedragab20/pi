@@ -207,6 +207,8 @@ def spawn(args):
     scope_args(scope)
     if round_number > cap:
         raise ValueError("round cap reached; report unresolved findings to the user")
+    if previous and not (previous.get("acknowledged") and previous.get("pane_closed")):
+        raise ValueError("acknowledge the previous verdict and close its reviewer pane before continuing")
     meta = {"run_id": uuid.uuid4().hex, "cwd": cwd, "scope": scope, "model": MODEL,
             "thinking": "max", "fast": True, "round": round_number, "max_rounds": cap,
             "prev_run_id": args.prev_run_id, "coordinator_pane": coordinator,
@@ -263,7 +265,12 @@ def record(args):
         save(rd / "meta.json", meta)
     try:
         herdr("agent", "prompt", meta["coordinator_pane"],
-              f"REVIEW_RECORDED {args.run_id} {args.verdict}. Run: python3 {Path(__file__).resolve()} pickup --run-id {args.run_id}")
+              f"REVIEW_RECORDED {args.run_id} {args.verdict}. "
+              f"Read {AGENT / 'skills/review-pane/SKILL.md'} and continue the active review loop automatically. "
+              f"Run: python3 {Path(__file__).resolve()} pickup --run-id {args.run_id}. "
+              "Adjudicate and report the verdict, then acknowledge to close this round's pane. "
+              "For confirmed in-scope noncritical fixes, fix, verify and spawn the next fresh round without asking to continue. "
+              "Stop at LGTM, a blocker, rejected-only findings, or the round cap; preserve approval requirements.")
         notified = True
     except (RuntimeError, OSError, ValueError, subprocess.TimeoutExpired):
         notified = False
@@ -278,7 +285,47 @@ def pickup(args):
         return {**meta, "disposition": "pending"}
     # Keep the pane and all artifacts: no accidental close of a reused/busy pane.
     return {**meta, **parse_json(path.read_text()), "disposition": "done",
-            "next": "Adjudicate each finding. Pane retained; close it only after checking ownership and idle state."}
+            "next": "Adjudicate and report this verdict, then run acknowledge --run-id=" + args.run_id
+                    + ". Follow the review-pane skill: fix and verify confirmed in-scope findings and spawn a fresh round automatically; stop at LGTM, a blocker or the cap."}
+
+
+def acknowledge(args):
+    meta = load(args.run_id)
+    authorize(meta, "coordinator_pane")
+    rd = run_dir(args.run_id)
+    if not (rd / "verdict.json").exists():
+        raise ValueError("cannot acknowledge before a verdict is recorded")
+    with (rd / ".acknowledge.lock").open("a") as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        meta = load(args.run_id)
+        if meta.get("pane_closed"):
+            return meta
+        meta["acknowledged"] = True
+        save(rd / "meta.json", meta)
+        pane, name = meta["reviewer_pane"], meta.get("reviewer_name")
+        if not name or not pane or pane == meta["coordinator_pane"]:
+            raise RuntimeError("reviewer identity unavailable or unsafe; pane retained")
+
+        def inspect():
+            # Resolve the unique name, not just a pane that may have a new occupant.
+            agent = herdr("agent", "get", name)["agent"]
+            if agent.get("pane_id") != pane or agent.get("agent") != "pi":
+                raise RuntimeError("reviewer identity changed; pane retained")
+            return agent.get("agent_status")
+
+        state = inspect()
+        if state == "working":
+            # Recording happens inside a tool call. Allow that final turn to finish,
+            # without polling or waiting for another review round.
+            herdr("agent", "wait", name, "--until", "idle", "--until", "done", "--timeout", "10000")
+            state = inspect()
+        if state not in {"idle", "done"}:
+            raise RuntimeError("reviewer is not idle; pane retained")
+        herdr("pane", "close", pane)
+        meta["pane_closed"] = True
+        meta["state"] = "acknowledged"
+        save(rd / "meta.json", meta)
+        return meta
 
 
 def parser():
@@ -290,7 +337,7 @@ def parser():
     start.add_argument("--prev-run-id")
     start.add_argument("--max-rounds", type=int)
     start.add_argument("--direction", choices=["right", "down"], default="right")
-    for name in ["record", "pickup", "status", "diff"]:
+    for name in ["record", "pickup", "acknowledge", "status", "diff"]:
         p = sub.add_parser(name)
         p.add_argument("--run-id", required=True)
         if name == "record":
@@ -313,6 +360,8 @@ def main():
             result = record(args)
         elif args.action == "pickup":
             result = pickup(args)
+        elif args.action == "acknowledge":
+            result = acknowledge(args)
         elif args.action == "diff":
             meta = load(args.run_id)
             authorize(meta, "reviewer_pane")
