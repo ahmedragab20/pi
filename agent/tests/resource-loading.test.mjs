@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
-import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, join, resolve } from "node:path";
 import test from "node:test";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
+import { createReadToolDefinition } from "../npm/node_modules/@earendil-works/pi-coding-agent/dist/core/tools/read.js";
 import { parseFrontmatter } from "../npm/node_modules/@earendil-works/pi-coding-agent/dist/utils/frontmatter.js";
 import { SettingsManager } from "../npm/node_modules/@earendil-works/pi-coding-agent/dist/core/settings-manager.js";
 import { DefaultPackageManager } from "../npm/node_modules/@earendil-works/pi-coding-agent/dist/core/package-manager.js";
@@ -35,6 +36,7 @@ const { resolveAgentInvocationConfig } = await jiti.import(
 	new URL("invocation-config.js", fork).href,
 );
 const { loadSettings } = await jiti.import(new URL("settings.js", fork).href);
+const { parseExtensionsSpec } = await jiti.import(new URL("agent-runner.js", fork).href);
 
 function isExtension(path, name) {
 	return path.replace(/\/index\.[jt]s$/, "").endsWith(`/${name}`);
@@ -197,10 +199,11 @@ test("the worker allowlist activates the real headless safety gate", {
 }, async () => {
 	const worker = loadCustomAgents(repoRoot).get("worker");
 	assert.ok(worker);
+	const resolvedExtensions = parseExtensionsSpec(worker.extensions, repoRoot).paths;
 	const loader = new DefaultResourceLoader({
 		cwd: repoRoot,
 		agentDir,
-		additionalExtensionPaths: worker.extensions,
+		additionalExtensionPaths: resolvedExtensions,
 		noContextFiles: true,
 		noSkills: true,
 		noPromptTemplates: true,
@@ -209,7 +212,7 @@ test("the worker allowlist activates the real headless safety gate", {
 		extensionsOverride: (base) => ({
 			...base,
 			extensions: base.extensions.filter((e) =>
-				worker.extensions.includes(e.path),
+				resolvedExtensions.includes(e.path),
 			),
 		}),
 	});
@@ -258,7 +261,7 @@ test("only the optional worker remains and its safety settings override caller p
 	const { frontmatter: fm } = parseFrontmatter(
 		readFileSync(join(agentDir, "agents/worker.md"), "utf8"),
 	);
-	assert.equal(fm.model, "openai-codex/gpt-5.6-luna");
+	assert.equal(fm.model, "openai-codex/gpt-6.1-sol");
 	assert.equal(fm.thinking, "medium");
 	assert.equal(fm.max_turns, 40);
 	assert.equal(fm.isolated, false);
@@ -266,12 +269,16 @@ test("only the optional worker remains and its safety settings override caller p
 	assert.equal(fm.inherit_context, false);
 	assert.equal(fm.prompt_mode, "replace");
 	assert.deepEqual(fm.extensions, [
-		join(agentDir, "extensions/security-gate.ts"),
-		join(agentDir, "extensions/browser/browser-verify.ts"),
+		"~/.pi/agent/extensions/security-gate.ts",
+		"~/.pi/agent/extensions/browser/browser-verify.ts",
 	]);
 	assert.equal(fm.allowed_subagents, undefined);
 	const worker = loadCustomAgents(repoRoot).get("worker");
 	assert.ok(worker);
+	assert.deepEqual(parseExtensionsSpec(worker.extensions, repoRoot).paths, [
+		join(agentDir, "extensions/security-gate.ts"),
+		join(agentDir, "extensions/browser/browser-verify.ts"),
+	]);
 	const invocation = resolveAgentInvocationConfig(worker, {
 		isolated: true,
 		model: "wrong/model",
@@ -285,9 +292,56 @@ test("only the optional worker remains and its safety settings override caller p
 	assert.equal(invocation.inheritContext, false);
 });
 
+test("reviewer guard agrees with the actual Node-host reader on path aliases", async (t) => {
+	const { checkReadPath } = await jiti.import(new URL("../extensions/review-pane/tools.ts", import.meta.url).href);
+	mkdirSync(join(agentDir, "tmp"), { recursive: true });
+	const root = mkdtempSync(join(agentDir, "tmp/review-reader-"));
+	const cwd = join(root, "checkout");
+	const home = join(root, "home");
+	mkdirSync(cwd);
+	mkdirSync(home);
+	const previousHome = process.env.HOME;
+	process.env.HOME = home;
+	t.after(() => {
+		if (previousHome === undefined) delete process.env.HOME;
+		else process.env.HOME = previousHome;
+		rmSync(root, { recursive: true });
+	});
+	const outside = join(home, "notes.txt");
+	writeFileSync(outside, "synthetic outside-checkout fixture");
+	writeFileSync(join(cwd, "inside.txt"), "synthetic inside-checkout fixture");
+	// Real destinations and decoys are all synthetic files under agent/tmp.
+	symlinkSync(home, join(cwd, "area "));
+	const aliases = ["~/notes.txt", "@../home/notes.txt", pathToFileURL(outside).href, "area\u00a0/notes.txt"];
+	const reader = createReadToolDefinition(cwd);
+	for (const path of aliases) {
+		const decoy = resolve(cwd, path);
+		mkdirSync(dirname(decoy), { recursive: true });
+		writeFileSync(decoy, "synthetic in-checkout decoy");
+		const result = await reader.execute("reader-boundary", { path }, undefined, undefined, { cwd });
+		assert.equal(result.structuredContent, "synthetic outside-checkout fixture", path);
+		for (const tool of ["read", "grep", "find", "ls"])
+			assert.match(checkReadPath(tool, path, cwd) ?? "", /inside the checkout/, `${tool}: ${path}`);
+	}
+	for (const path of ["inside.txt", "@inside.txt", pathToFileURL(join(cwd, "inside.txt")).href]) {
+		const result = await reader.execute("reader-inside", { path }, undefined, undefined, { cwd });
+		assert.equal(result.structuredContent, "synthetic inside-checkout fixture", path);
+		assert.equal(checkReadPath("read", path, cwd), undefined, path);
+	}
+});
+
 test("global worker limits apply without conflicting project overrides", () => {
-	assert.equal(existsSync(join(repoRoot, ".pi/subagents.json")), false);
+	const globalPolicy = JSON.parse(readFileSync(join(agentDir, "subagents.json"), "utf8"));
+	const projectPath = join(repoRoot, ".pi/subagents.json");
+	const projectSettings = existsSync(projectPath)
+		? JSON.parse(readFileSync(projectPath, "utf8"))
+		: {};
 	const settings = loadSettings(repoRoot);
+	for (const [key, expected] of Object.entries(globalPolicy)) {
+		if (Object.hasOwn(projectSettings, key))
+			assert.deepEqual(projectSettings[key], expected, `${key}: local override conflicts with global policy`);
+		assert.deepEqual(settings[key], expected, `${key}: effective policy differs from global policy`);
+	}
 	assert.equal(settings.maxConcurrent, 1);
 	assert.equal(settings.maxConcurrentForeground, 1);
 	assert.equal(settings.maxSubagentDepth, 1);

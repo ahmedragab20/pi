@@ -9,15 +9,15 @@ lead-owned and direct; delegate only substantial, independent, bounded chores.
 
 ## Optional worker
 
-`agent/agents/worker.md` pins `openai-codex/gpt-5.6-luna` at medium thinking,
+`agent/agents/worker.md` pins `openai-codex/gpt-6.1-sol` at medium thinking,
 40 turns plus two wrap-up turns. No nested delegation or automatic model fallback.
 Global settings allow one background and one foreground spawn slot; keep at most two
 worker jobs active, including resumes. `/agents` remains available; FleetView, native
 worker widgets, agent-mention routing, and scheduling are off. The shared UI row
 shows worker lifecycle events without enabling those extra surfaces.
 
-Workers use `isolated: false` with only the security gate active, and no inherited
-skills, context files, or parent conversation. Frontmatter wins over caller parameters.
+Workers use `isolated: false` with the security gate and read-only browser verification,
+and no inherited skills, context files, or parent conversation. Frontmatter wins over caller parameters.
 The loader discovers extension factories before filtering active handlers; this is not
 an OS sandbox. Give the worker a goal, scope, and checks, then inspect its actual result.
 
