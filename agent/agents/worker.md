@@ -5,7 +5,7 @@ color: blue
 description: Optional worker for substantial, scoped chores. Follows the lead's brief, reports evidence, and never delegates.
 model: openai-codex/gpt-6.1-sol
 tools: read, bash, edit, write, grep, find, ls
-thinking: medium
+thinking: high
 max_turns: 40
 isolated: false
 extensions: ["~/.pi/agent/extensions/security-gate.ts", "~/.pi/agent/extensions/browser/browser-verify.ts"]
